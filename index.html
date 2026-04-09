@@ -706,12 +706,52 @@ function lsGet(k,def=null){try{const v=localStorage.getItem(k);return v!==null?J
 function lsSet(k,v){try{localStorage.setItem(k,JSON.stringify(v));return true;}catch(e){showToast('存储空间不足，请清理旧记录');return false;}}
 
 // ── Attachment handling ───────────────────────────────
-// Base64 附件数据存 localStorage，Firestore 只存元数据
-function saveAttLocal(att){if(att&&att.id&&att.data) localStorage.setItem('expense:att:'+att.id, att.data);}
-function loadAttLocal(att){if(att&&att.id&&!att.data) att.data=localStorage.getItem('expense:att:'+att.id)||null; return att;}
+// 附件 base64 存 Firebase 独立集合（expense_attachments），每设备可见
+function saveAttLocal(att){if(att?.id&&att?.data) localStorage.setItem('expense:att:'+att.id, att.data);}
+function loadAttLocal(att){if(att?.id&&!att?.data) att.data=localStorage.getItem('expense:att:'+att.id)||null; return att;}
+
+// 存附件到 Firebase（每个附件一个文档，分块存避免超 1MB）
+async function fbSaveAtts(atts){
+  if(!fbReady||!db||!atts||!atts.length) return;
+  for(const att of atts){
+    if(!att.data) continue;
+    saveAttLocal(att); // 同时存本地缓存
+    try{
+      // Firestore 文档限 1MB，base64 图片可能超限，分成最多4块存储
+      const data=att.data;
+      const chunkSize=900000; // ~900KB per chunk
+      const chunks=[];
+      for(let i=0;i<data.length;i+=chunkSize) chunks.push(data.slice(i,i+chunkSize));
+      await db.collection('expense_attachments').doc(fid(att.id)).set({
+        id:att.id, name:att.name, type:att.type, size:att.size,
+        chunks, totalChunks:chunks.length
+      });
+    }catch(e){ console.warn('fbSaveAtt failed:',att.name,e); }
+  }
+}
+
+// 从 Firebase 加载附件数据
+async function fbLoadAtts(atts){
+  if(!fbReady||!db||!atts||!atts.length) return atts;
+  const result=[];
+  for(const att of atts){
+    // Check local cache first
+    const cached=localStorage.getItem('expense:att:'+att.id);
+    if(cached){ result.push({...att,data:cached}); continue; }
+    try{
+      const snap=await db.collection('expense_attachments').doc(fid(att.id)).get();
+      if(snap.exists){
+        const d=snap.data();
+        const data=d.chunks?d.chunks.join(''):d.data||'';
+        localStorage.setItem('expense:att:'+att.id, data); // cache locally
+        result.push({...att,data});
+      } else { result.push(att); }
+    }catch(e){ console.warn('fbLoadAtt failed:',att.name,e); result.push(att); }
+  }
+  return result;
+}
 
 function stripRec(rec){
-  // 去掉 base64 数据再存 Firestore（防止超 1MB 限制）
   const r=JSON.parse(JSON.stringify(rec));
   if(r.attachments) r.attachments=r.attachments.map(a=>({id:a.id||'',name:a.name||'',type:a.type||'',size:a.size||0}));
   if(r.formState){lsSet('expense:fs:'+r.id, r.formState); delete r.formState; r._hasFormState=true;}
@@ -727,7 +767,7 @@ function fid(id){return (id||'').replace(/[.#$/\[\]]/g,'_');}
 // ── Firebase CRUD ─────────────────────────────────────
 async function fbSaveRec(rec){
   if(!fbReady||!db) return;
-  if(rec.attachments) rec.attachments.forEach(saveAttLocal);
+  if(rec.attachments&&rec.attachments.length) await fbSaveAtts(rec.attachments);
   try{ await db.collection('expense_records').doc(fid(rec.id)).set(stripRec(rec)); }
   catch(e){ console.warn('fbSaveRec:',e); showToast('云端同步失败，已保存到本地'); }
 }
@@ -1530,7 +1570,7 @@ function renderMyRecords(){
       <td>${logHtml}</td>
       <td style="white-space:nowrap">
         ${r.status==='draft'?`<button class="btn-resubmit" style="background:#EBF5FB;color:#1A5276" onclick="editDraft('${r.id}')">编辑</button> <button class="btn-resubmit" onclick="submitDraft('${r.id}')">提交</button> `:''}
-        ${r.status==='rejected'?`<button class="btn-resubmit" onclick="resubmit('${r.id}')">重新提交</button> `:''}
+        ${r.status==='rejected'?`<button class="btn-resubmit" style="background:#EBF5FB;color:#1A5276" onclick="editRejected('${r.id}')">修改</button> <button class="btn-resubmit" onclick="resubmit('${r.id}')">直接重新提交</button> `:''}
         ${r.status!=='pending'?`<button style="font-size:11px;padding:5px 9px;background:#fff;color:#aaa;border:1px solid #E8E8E8;border-radius:6px;cursor:pointer;font-family:inherit" onclick="deleteMyRecord('${r.id}')">删除</button>`:''}
       </td>`;
     tb.appendChild(tr);
@@ -1539,6 +1579,36 @@ function renderMyRecords(){
 function submitDraft(id){const r=records.find(r=>r.id===id);if(r){r.status='pending';r.submitTime=new Date().toLocaleString('zh-CN');fbSaveRec(r);saveRecords();updateMetrics();renderMyRecords();showToast('已提交审批');}}
 function resubmit(id){const r=records.find(r=>r.id===id);if(r){r.status='pending';r.submitTime=new Date().toLocaleString('zh-CN');if(!r.approvalLog)r.approvalLog=[];r.approvalLog.push({action:'resubmit',time:new Date().toLocaleString('zh-CN')});fbSaveRec(r);saveRecords();updateMetrics();renderMyRecords();showToast('已重新提交');}}
 function deleteMyRecord(id){if(!confirm('确认删除？附件也将一并删除。'))return;fbDelRec(id);records=records.filter(r=>r.id!==id);saveRecords();updateMetrics();renderMyRecords();}
+
+function editRejected(id){
+  const r=records.find(rec=>rec.id===id);
+  if(!r||r.status!=='rejected'){showToast('找不到该申请');return;}
+  const TYPE_REVERSE={'日常费用':'daily','国内差旅':'travel','海外出差':'overseas','租车/汽油':'car','租车 / 汽油':'car'};
+  clearForm();
+  // Restore type
+  const typeVal=TYPE_REVERSE[r.type]||'daily';
+  const typeEl=document.getElementById('exp-type');
+  if(typeEl){typeEl.value=typeVal;switchType();}
+  // Restore basic fields
+  document.getElementById('exp-reason').value=(r.reason==='（草稿）'?'':r.reason)||'';
+  document.getElementById('apply-date').value=r.date||new Date().toISOString().split('T')[0];
+  document.getElementById('remark').value=r.remark||'';
+  // Restore formState if exists
+  if(r.formState){
+    try{ restoreFormState(r.formState); }catch(e){ console.warn(e); }
+  }
+  currentAttachments=r.attachments?[...r.attachments]:[];
+  renderAttachList();
+  // Mark as editing a rejected record so submitForm creates a new one linked to original
+  window._editingRejectedId=id;
+  // Delete the old rejected record
+  fbDelRec(id);
+  records=records.filter(rec=>rec.id!==id);
+  saveRecords();updateMetrics();
+  showPage('new','new');
+  window.scrollTo(0,0);
+  showToast('已加载被驳回的申请，修改后重新提交');
+}
 
 function renderApproveList(){
   const pending=records.filter(r=>r.status==='pending');
@@ -1591,8 +1661,22 @@ function renderAllRecords(){
 // APPROVAL
 // ══════════════════════════════════════════════════════
 function closeDetail(){document.getElementById('detail-overlay').style.display='none';}
-function showDetail(id){
+async function showDetail(id){
   const r=records.find(r=>r.id===id);if(!r)return;
+  // Show modal immediately with loading state
+  document.getElementById('detail-content').innerHTML='<div style="text-align:center;padding:40px 0;color:#aaa">加载附件中...</div>';
+  document.getElementById('detail-overlay').style.display='flex';
+  // Load attachments from Firebase if not cached
+  if(r.attachments&&r.attachments.length&&fbReady){
+    const missing=r.attachments.filter(a=>!a.data);
+    if(missing.length){
+      const loaded=await fbLoadAtts(r.attachments);
+      r.attachments=loaded;
+    }
+  }
+  _renderDetail(r);
+}
+function _renderDetail(r){
   const bc={pending:'badge-pending',approved:'badge-approved',rejected:'badge-rejected',draft:'badge-draft'}[r.status]||'badge-draft';
   const log=r.approvalLog&&r.approvalLog.length?r.approvalLog.filter(l=>l.action!=='resubmit').slice(-1)[0]:null;
 
