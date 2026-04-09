@@ -1357,6 +1357,14 @@ function restoreFormState(state){
   if(state.osStart&&state.osEnd)calcOsDays();
   if(state.carStart||state.carEnd||state.carDaily)calcCarCost();
   updateOsFx();
+  // Re-run calculations after a tick to ensure DOM is fully updated
+  setTimeout(()=>{
+    if(state.travelStart&&state.travelEnd)calcDays();
+    if(state.osStart&&state.osEnd)calcOsDays();
+    if(state.carStart||state.carEnd||state.carDaily)calcCarCost();
+    updateOsFx();
+    calcTotal('daily');calcTotal('travel');calcOverseasTotal();calcCarTotal();
+  },100);
   // Restore rows
   const today=new Date().toISOString().split('T')[0];
   ['daily','travel','overseas','car'].forEach(t=>{
