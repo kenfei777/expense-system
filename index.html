@@ -753,13 +753,20 @@ async function fbLoadAtts(atts){
 
 function stripRec(rec){
   const r=JSON.parse(JSON.stringify(rec));
+  // 只去掉附件 base64（太大），formState 直接存 Firebase（体积小，无图片数据）
   if(r.attachments) r.attachments=r.attachments.map(a=>({id:a.id||'',name:a.name||'',type:a.type||'',size:a.size||0}));
-  if(r.formState){lsSet('expense:fs:'+r.id, r.formState); delete r.formState; r._hasFormState=true;}
+  // 同时备份到本地，加速本地读取
+  if(r.formState) lsSet('expense:fs:'+r.id, r.formState);
   return r;
 }
 function hydrateRec(rec){
   if(rec.attachments) rec.attachments=rec.attachments.map(loadAttLocal);
-  if(rec._hasFormState){rec.formState=lsGet('expense:fs:'+rec.id,null); delete rec._hasFormState;}
+  // formState 已直接在 Firebase 记录里，无需从 localStorage 恢复
+  // 但如果 Firebase 里没有（旧记录），尝试从本地取
+  if(!rec.formState && rec._hasFormState){
+    rec.formState=lsGet('expense:fs:'+rec.id,null);
+    delete rec._hasFormState;
+  }
   return rec;
 }
 function fid(id){return (id||'').replace(/[.#$/\[\]]/g,'_');}
