@@ -1441,7 +1441,7 @@ function submitForm(isDraft){
     remark:document.getElementById('remark').value,
     attachments:[...currentAttachments],
     approvalLog:[],
-    ...(isDraft?{formState:captureFormState()}:{})
+    formState: captureFormState()
   });
   const newRec=records[0];
   fbSaveRec(newRec);
