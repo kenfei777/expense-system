@@ -794,9 +794,11 @@ function startLive(){
       const ap=document.querySelector('.page.active');
       if(ap){
         const pid=ap.id.replace('page-','');
+        // ⚠️ 不在新建申请页面刷新，避免打断填写
         if(pid==='records') renderMyRecords();
         else if(pid==='approve') renderApproveList();
         else if(pid==='all') renderAllRecords();
+        // pid==='new' → 不做任何事，保留用户正在填的内容
       }
     }
   }, e=>console.warn('Snapshot error:',e));
