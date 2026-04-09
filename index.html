@@ -783,7 +783,8 @@ async function fbSetCfg(patch){
 }
 
 // ── Real-time listener ────────────────────────────────
-let _lastRecordsSnapshot = ''; // track changes to notify employee
+let _formLocked = false; // true when user is editing, block form resets from snapshot
+
 function startLive(){
   if(!fbReady||!db||recordsUnsubscribe) return;
   recordsUnsubscribe=db.collection('expense_records').onSnapshot(snap=>{
@@ -798,7 +799,6 @@ function startLive(){
         if(old&&old.status!==nr.status){
           const labels={approved:'✅ 已批准',rejected:'❌ 已驳回',pending:'⏳ 待审批',paid:'💰 已打款'};
           showToast(`申请「${nr.reason}」${labels[nr.status]||nr.status}`);
-          // Badge on 我的申请 nav button
           ['tnav-records','bnav-records'].forEach(id=>{
             const el=document.getElementById(id);
             if(el&&!el.querySelector('.update-dot')){
@@ -821,13 +821,13 @@ function startLive(){
       if(ap){
         const pid=ap.id.replace('page-','');
         if(pid==='records'){
-          // Clear update dot when user views their records
           document.querySelectorAll('.update-dot').forEach(d=>d.remove());
           renderMyRecords();
         }
         else if(pid==='approve') renderApproveList();
         else if(pid==='all') renderAllRecords();
-        // pid==='new' → 不重置表单，只更新角标和指标
+        // pid==='new' → 只有表单未锁定时才不处理，锁定时完全不动
+        // _formLocked=true 时任何页面都不重置表单
       }
     }
   }, e=>console.warn('Snapshot error:',e));
@@ -1420,11 +1420,11 @@ function editDraft(id){
   const TYPE_REVERSE={'日常费用':'daily','国内差旅':'travel','海外出差':'overseas','租车 / 汽油':'car','租车/汽油':'car'};
 
   if(r.formState){
-    // ── Full restore: new-style draft ──
     try{
       restoreFormState(r.formState);
       currentAttachments=r.attachments?[...r.attachments]:[];
       renderAttachList();
+      _formLocked=true;
       fbDelRec(id);
       records=records.filter(rec=>rec.id!==id);
       saveRecords();updateMetrics();
@@ -1436,18 +1436,16 @@ function editDraft(id){
       console.error(e);
     }
   } else {
-    // ── Partial restore: legacy draft (no formState) ──
     clearForm();
-    // Restore type
     const typeVal=TYPE_REVERSE[r.type]||'daily';
     const typeEl=document.getElementById('exp-type');
     if(typeEl){typeEl.value=typeVal;switchType();}
-    // Restore basic fields
     document.getElementById('exp-reason').value=(r.reason==='（草稿）'?'':r.reason)||'';
     document.getElementById('apply-date').value=r.date||new Date().toISOString().split('T')[0];
     document.getElementById('remark').value=r.remark||'';
     currentAttachments=r.attachments?[...r.attachments]:[];
     renderAttachList();
+    _formLocked=true;
     fbDelRec(id);
     records=records.filter(rec=>rec.id!==id);
     saveRecords();updateMetrics();
@@ -1478,7 +1476,8 @@ function submitForm(isDraft){
   fbSaveRec(newRec);
   saveRecords();updateMetrics();
   showToast(isDraft?'草稿已保存':'已提交审批，编号 '+id);
-  if(!isDraft)clearForm();
+  if(!isDraft){_formLocked=false;clearForm();}
+  else{_formLocked=false;}
 }
 function saveDraft(){submitForm(true);}
 function clearForm(){
@@ -1630,9 +1629,8 @@ function editRejected(id){
   }
   currentAttachments=r.attachments?[...r.attachments]:[];
   renderAttachList();
-  // Mark as editing a rejected record so submitForm creates a new one linked to original
   window._editingRejectedId=id;
-  // Delete the old rejected record
+  _formLocked=true; // 🔒 防止 Firebase 实时监听重置表单
   fbDelRec(id);
   records=records.filter(rec=>rec.id!==id);
   saveRecords();updateMetrics();
