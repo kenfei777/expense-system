@@ -753,21 +753,30 @@ async function fbLoadAtts(atts){
 
 function stripRec(rec){
   const r=JSON.parse(JSON.stringify(rec));
-  // 只去掉附件 base64（太大），formState 直接存 Firebase（体积小，无图片数据）
   if(r.attachments) r.attachments=r.attachments.map(a=>({id:a.id||'',name:a.name||'',type:a.type||'',size:a.size||0}));
-  // 同时备份到本地，加速本地读取
+  // formState 保留在记录里，同时存本地缓存
   if(r.formState) lsSet('expense:fs:'+r.id, r.formState);
   return r;
 }
 function hydrateRec(rec){
   if(rec.attachments) rec.attachments=rec.attachments.map(loadAttLocal);
-  // formState 已直接在 Firebase 记录里，无需从 localStorage 恢复
-  // 但如果 Firebase 里没有（旧记录），尝试从本地取
-  if(!rec.formState && rec._hasFormState){
-    rec.formState=lsGet('expense:fs:'+rec.id,null);
-    delete rec._hasFormState;
-  }
+  // 如果 Firebase 记录里没有 formState（旧版代码驳回导致），从独立集合补取
+  if(!rec.formState && rec._hasFormState) delete rec._hasFormState;
   return rec;
+}
+
+// 把 formState 单独存一份到 expense_formstates 集合（防止被旧版代码删掉）
+async function fbSaveFormState(id, formState){
+  if(!fbReady||!db||!formState) return;
+  try{ await db.collection('expense_formstates').doc(fid(id)).set({id, formState, savedAt:new Date().toISOString()}); }
+  catch(e){ console.warn('fbSaveFormState:',e); }
+}
+async function fbLoadFormState(id){
+  if(!fbReady||!db) return null;
+  try{
+    const snap=await db.collection('expense_formstates').doc(fid(id)).get();
+    return snap.exists?snap.data().formState:null;
+  }catch(e){ return null; }
 }
 function fid(id){return (id||'').replace(/[.#$/\[\]]/g,'_');}
 
@@ -1489,6 +1498,7 @@ function submitForm(isDraft){
   });
   const newRec=records[0];
   fbSaveRec(newRec);
+  fbSaveFormState(newRec.id, newRec.formState);
   saveRecords();updateMetrics();
   showToast(isDraft?'草稿已保存':'已提交审批，编号 '+id);
   if(!isDraft){_formLocked=false;clearForm();}
@@ -1625,29 +1635,29 @@ function submitDraft(id){const r=records.find(r=>r.id===id);if(r){r.status='pend
 function resubmit(id){const r=records.find(r=>r.id===id);if(r){r.status='pending';r.submitTime=new Date().toLocaleString('zh-CN');if(!r.approvalLog)r.approvalLog=[];r.approvalLog.push({action:'resubmit',time:new Date().toLocaleString('zh-CN')});fbSaveRec(r);saveRecords();updateMetrics();renderMyRecords();showToast('已重新提交');}}
 function deleteMyRecord(id){if(!confirm('确认删除？附件也将一并删除。'))return;fbDelRec(id);records=records.filter(r=>r.id!==id);saveRecords();updateMetrics();renderMyRecords();}
 
-function editRejected(id){
+async function editRejected(id){
   const r=records.find(rec=>rec.id===id);
   if(!r||r.status!=='rejected'){showToast('找不到该申请');return;}
 
   if(r.formState){
-    // 有完整快照 → 直接还原
-    try{
-      restoreFormState(r.formState);
-    }catch(e){
-      console.warn(e);
-      clearForm();
-    }
+    try{ restoreFormState(r.formState); }catch(e){ console.warn(e); clearForm(); }
   } else {
-    // 旧记录无快照 → 尽量还原基本信息
-    const TYPE_REVERSE={'日常费用':'daily','国内差旅':'travel','海外出差':'overseas','租车/汽油':'car','租车 / 汽油':'car'};
-    clearForm();
-    const typeVal=TYPE_REVERSE[r.type]||'daily';
-    const typeEl=document.getElementById('exp-type');
-    if(typeEl){typeEl.value=typeVal;switchType();}
-    document.getElementById('exp-reason').value=(r.reason==='（草稿）'?'':r.reason)||'';
-    document.getElementById('apply-date').value=r.date||new Date().toISOString().split('T')[0];
-    document.getElementById('remark').value=r.remark||'';
-    showToast('⚠ 旧申请仅恢复基本信息，请重新填写明细');
+    // formState 不在记录里（旧版代码驳回导致）→ 从独立集合取
+    const fs = await fbLoadFormState(id);
+    if(fs){
+      try{ restoreFormState(fs); }catch(e){ console.warn(e); clearForm(); }
+    } else {
+      // 完全找不到快照 → 尽量还原基本信息
+      const TYPE_REVERSE={'日常费用':'daily','国内差旅':'travel','海外出差':'overseas','租车/汽油':'car','租车 / 汽油':'car'};
+      clearForm();
+      const typeVal=TYPE_REVERSE[r.type]||'daily';
+      const typeEl=document.getElementById('exp-type');
+      if(typeEl){typeEl.value=typeVal;switchType();}
+      document.getElementById('exp-reason').value=(r.reason==='（草稿）'?'':r.reason)||'';
+      document.getElementById('apply-date').value=r.date||new Date().toISOString().split('T')[0];
+      document.getElementById('remark').value=r.remark||'';
+      showToast('⚠ 找不到表单快照，请重新填写明细');
+    }
   }
 
   currentAttachments=r.attachments?[...r.attachments]:[];
