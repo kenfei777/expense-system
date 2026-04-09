@@ -630,6 +630,14 @@ body{font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;background:#F2
     </div>
   </div>
 
+  <!-- ─── 申请明细 modal ─── -->
+  <div id="detail-overlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeDetail()">
+    <div class="modal-sheet" style="max-width:600px;width:100%">
+      <div class="modal-handle"></div>
+      <div id="detail-content"></div>
+    </div>
+  </div>
+
 </div>
 </div>
 
@@ -1530,6 +1538,7 @@ function renderApproveList(){
       <td>${attachBadge(r)}</td>
       <td style="color:#999;font-size:12px">${r.submitTime||'—'}</td>
       <td style="white-space:nowrap">
+        <button class="btn-resubmit" style="background:#EBF5FB;color:#1A5276;margin-right:4px" onclick="showDetail('${r.id}')">查看明细</button>
         <button class="btn-approve" onclick="openApproveModal('${r.id}','approved')">批准</button>
         <button class="btn-reject" style="margin-left:5px" onclick="openApproveModal('${r.id}','rejected')">驳回</button>
       </td>`;
@@ -1553,7 +1562,8 @@ function renderAllRecords(){
       <td><span class="badge ${bc}">${STATUS_LABEL[r.status]}</span></td>
       <td>${log?log.approverName:'—'}</td>
       <td style="color:#999;font-size:12px">${log?log.time:'—'}</td>
-      <td style="color:#999;font-size:12px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${log&&log.comment?log.comment:''}">${log&&log.comment?log.comment:'—'}</td>`;
+      <td style="color:#999;font-size:12px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${log&&log.comment?log.comment:''}">${log&&log.comment?log.comment:'—'}</td>
+      <td><button class="btn-resubmit" style="background:#EBF5FB;color:#1A5276" onclick="showDetail('${r.id}')">查看</button></td>`;
     tb.appendChild(tr);
   });
 }
@@ -1561,6 +1571,84 @@ function renderAllRecords(){
 // ══════════════════════════════════════════════════════
 // APPROVAL
 // ══════════════════════════════════════════════════════
+function closeDetail(){document.getElementById('detail-overlay').style.display='none';}
+function showDetail(id){
+  const r=records.find(r=>r.id===id);if(!r)return;
+  const bc={pending:'badge-pending',approved:'badge-approved',rejected:'badge-rejected',draft:'badge-draft'}[r.status]||'badge-draft';
+  const log=r.approvalLog&&r.approvalLog.length?r.approvalLog.filter(l=>l.action!=='resubmit').slice(-1)[0]:null;
+
+  // Build items table if available
+  let itemsHtml='';
+  if(r.items&&r.items.length){
+    itemsHtml=`<div style="margin:12px 0 0">
+      <div style="font-size:12px;font-weight:600;color:#444;margin-bottom:6px">费用明细</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="background:#F8F8F8">
+          <th style="padding:6px 8px;text-align:left;color:#999;font-weight:500;border-bottom:1px solid #F0F0F0">类别</th>
+          <th style="padding:6px 8px;text-align:left;color:#999;font-weight:500;border-bottom:1px solid #F0F0F0">说明</th>
+          <th style="padding:6px 8px;text-align:left;color:#999;font-weight:500;border-bottom:1px solid #F0F0F0">日期</th>
+          <th style="padding:6px 8px;text-align:right;color:#999;font-weight:500;border-bottom:1px solid #F0F0F0">金额</th>
+        </tr></thead><tbody>
+        ${r.items.map(it=>`<tr>
+          <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5">${it.cat||it.category||'—'}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5;color:#666">${it.desc||it.description||'—'}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5;color:#999">${it.date||it.item_date||'—'}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5;text-align:right;font-weight:600">${it.amountCNY?'¥'+parseFloat(it.amountCNY).toFixed(2):it.amount?'¥'+parseFloat(it.amount).toFixed(2):'—'}</td>
+        </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+  }
+
+  // Attachments
+  const attHtml=r.attachments&&r.attachments.length
+    ?`<div style="margin:12px 0 0">
+        <div style="font-size:12px;font-weight:600;color:#444;margin-bottom:6px">附件（${r.attachments.length}张）</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          ${r.attachments.map((a,i)=>a.data
+            ?(a.type==='application/pdf'
+              ?`<div class="attach-thumb-pdf" onclick="previewAtt(${i},'${r.id}')" style="cursor:pointer">PDF</div>`
+              :`<img src="${a.data}" class="attach-thumb" onclick="previewAtt(${i},'${r.id}')" style="cursor:pointer"/>`)
+            :`<span style="font-size:11px;color:#999;background:#F5F5F5;padding:4px 8px;border-radius:6px">📎 ${a.name}</span>`
+          ).join('')}
+        </div>
+      </div>`
+    :'';
+
+  // Remark
+  const remarkHtml=r.remark?`<div style="margin:12px 0 0;padding:10px 12px;background:#F8F8F8;border-radius:8px;font-size:12px;color:#555"><strong>备注：</strong>${r.remark}</div>`:'';
+
+  // Approval log
+  const logHtml=log?`<div style="margin:12px 0 0;padding:10px 12px;border-radius:8px;border-left:3px solid ${log.action==='approved'?'#27AE60':'#E74C3C'};background:${log.action==='approved'?'#EAFAF1':'#FDEDEC'};font-size:12px">
+    <strong>${log.action==='approved'?'✓ 已批准':'✗ 已驳回'}</strong> · ${log.approverName||'—'} · ${log.time||'—'}
+    ${log.comment?`<div style="margin-top:4px;color:#666">${log.comment}</div>`:''}
+  </div>`:'';
+
+  document.getElementById('detail-content').innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
+      <div>
+        <div style="font-size:16px;font-weight:700;color:#1a1a1a">${r.name} · ${r.type}</div>
+        <div style="font-size:11px;color:#aaa;margin-top:2px">${r.id} · ${r.submitTime||r.date||''}</div>
+      </div>
+      <span class="badge ${bc}">${STATUS_LABEL[r.status]||r.status}</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:4px">
+      ${[['部门',r.dept||'—'],['事由',r.reason||'—'],['申请日期',r.date||'—'],['金额',r.amount||'—']].map(([l,v])=>`
+        <div style="background:#F8F8F8;border-radius:8px;padding:8px 12px">
+          <div style="font-size:11px;color:#aaa">${l}</div>
+          <div style="font-size:13px;font-weight:600;color:#1a1a1a;margin-top:2px">${v}</div>
+        </div>`).join('')}
+    </div>
+    ${itemsHtml}${attHtml}${remarkHtml}${logHtml}
+    <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+      ${r.status==='pending'?`
+        <button class="btn-approve" onclick="closeDetail();openApproveModal('${r.id}','approved')">✓ 批准</button>
+        <button class="btn-reject" onclick="closeDetail();openApproveModal('${r.id}','rejected')">✗ 驳回</button>`:''}
+      <button class="btn btn-secondary" style="font-size:13px;padding:7px 16px" onclick="closeDetail()">关闭</button>
+    </div>`;
+  document.getElementById('detail-overlay').style.display='flex';
+}
+
 function openApproveModal(id,action){
   pendingApprovalAction={id,action};
   const r=records.find(r=>r.id===id);
