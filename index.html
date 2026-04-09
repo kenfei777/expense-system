@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>公司报销管理系统</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 body{font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;background:#F2F4F7;color:#1a1a1a;font-size:14px;min-height:100vh}
@@ -252,9 +251,6 @@ body{font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;background:#F2
       <button class="btn btn-excel" id="export-all-btn" onclick="exportExcel('all')" style="display:none;font-size:12px;padding:5px 12px">
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="8 15 12 12 16 15"/></svg>
         导出 Excel
-      </button>
-      <button class="btn" id="export-zip-btn" onclick="downloadAllZip()" style="display:none;font-size:12px;padding:5px 12px;border:1px solid #1A5276;color:#1A5276;background:#fff">
-        📦 导出全部附件 ZIP
       </button>
     </div>
   </div>
@@ -793,7 +789,6 @@ function doLogin(){
   buildNav(user.role);
   if(user.role==='approver'){
     document.getElementById('export-all-btn').style.display='flex';
-    document.getElementById('export-zip-btn').style.display='flex';
     showPage('approve','approve');
   } else {
     addRow('daily');
@@ -809,7 +804,6 @@ function logout(){
   document.getElementById('main-app').style.display='none';
   document.getElementById('bottom-nav').style.display='none';
   document.getElementById('export-all-btn').style.display='none';
-  document.getElementById('export-zip-btn').style.display='none';
   document.getElementById('login-id').value='';
   document.getElementById('login-pw').value='';
   document.getElementById('login-err').textContent='';
@@ -1314,43 +1308,7 @@ function downloadPreview(){if(!previewFile)return;const a=document.createElement
 
 function attachBadge(rec){
   if(!rec.attachments||!rec.attachments.length)return '<span style="color:#ccc;font-size:12px">无</span>';
-  return `<div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
-    <span class="attach-count-badge" onclick="previewAtt(0,'${rec.id}')">📎 ${rec.attachments.length}张</span>
-    <button onclick="downloadAttachmentsZip('${rec.id}')" title="打包下载全部附件"
-      style="font-size:11px;padding:2px 8px;border:1px solid #27AE60;border-radius:20px;background:#fff;color:#27AE60;cursor:pointer;font-family:inherit;white-space:nowrap">⬇ ZIP</button>
-  </div>`;
-}
-
-async function downloadAttachmentsZip(recId){
-  if(typeof JSZip==='undefined'){showToast('JSZip 未加载，请稍候重试');return;}
-  const rec=records.find(r=>r.id===recId);
-  if(!rec||!rec.attachments||!rec.attachments.length){showToast('该申请没有附件');return;}
-  showToast('正在打包附件…');
-  try{
-    const zip=new JSZip();
-    const folder=zip.folder(rec.id);
-    // Deduplicate filenames
-    const nameCount={};
-    rec.attachments.forEach(att=>{
-      const base=att.name||'附件';
-      nameCount[base]=(nameCount[base]||0)+1;
-      const count=nameCount[base];
-      const fname=count>1?base.replace(/(\.[^.]+)$/,`_${count}$1`):base;
-      // Strip base64 header and decode
-      const b64=att.data.split(',')[1]||att.data;
-      folder.file(fname,b64,{base64:true});
-    });
-    const blob=await zip.generateAsync({type:'blob'});
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');
-    a.href=url;
-    a.download=`附件_${rec.id}_${rec.name||''}.zip`;
-    a.click();
-    setTimeout(()=>URL.revokeObjectURL(url),3000);
-    showToast(`已下载 ${rec.attachments.length} 个附件`);
-  }catch(e){
-    showToast('打包失败：'+e.message);
-  }
+  return `<span class="attach-count-badge" onclick="previewAtt(0,'${rec.id}')">📎 ${rec.attachments.length}张</span>`;
 }
 
 // ══════════════════════════════════════════════════════
@@ -1540,37 +1498,6 @@ function calcFx(){
 // ══════════════════════════════════════════════════════
 // EXPORT
 // ══════════════════════════════════════════════════════
-async function downloadAllZip(){
-  if(typeof JSZip==='undefined'){showToast('JSZip 未加载，请稍候重试');return;}
-  const data=records.filter(r=>r.attachments&&r.attachments.length);
-  if(!data.length){showToast('所有申请均无附件');return;}
-  const totalCount=data.reduce((s,r)=>s+r.attachments.length,0);
-  showToast(`正在打包 ${totalCount} 个附件…`);
-  try{
-    const zip=new JSZip();
-    data.forEach(rec=>{
-      const folder=zip.folder(`${rec.id}_${rec.name||''}`);
-      const nameCount={};
-      rec.attachments.forEach(att=>{
-        const base=att.name||'附件';
-        nameCount[base]=(nameCount[base]||0)+1;
-        const count=nameCount[base];
-        const fname=count>1?base.replace(/(\.[^.]+)$/,`_${count}$1`):base;
-        const b64=att.data.split(',')[1]||att.data;
-        folder.file(fname,b64,{base64:true});
-      });
-    });
-    const blob=await zip.generateAsync({type:'blob'});
-    const url=URL.createObjectURL(blob);
-    const a=document.createElement('a');
-    a.href=url;
-    a.download=`全部报销附件_${new Date().toISOString().split('T')[0]}.zip`;
-    a.click();
-    setTimeout(()=>URL.revokeObjectURL(url),3000);
-    showToast(`已下载 ${totalCount} 个附件，共 ${data.length} 条申请`);
-  }catch(e){showToast('打包失败：'+e.message);}
-}
-
 function exportExcel(scope){
   if(typeof XLSX==='undefined'){showToast('请稍候...');return;}
   const today=new Date().toLocaleDateString('zh-CN');
