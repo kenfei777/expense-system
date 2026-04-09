@@ -1640,11 +1640,13 @@ async function editRejected(id){
   if(!r||r.status!=='rejected'){showToast('找不到该申请');return;}
 
   if(r.formState){
+    showToast(`恢复中: formState有效, travel行数=${(r.formState.rows?.travel||[]).length}`);
     try{ restoreFormState(r.formState); }catch(e){ console.warn(e); clearForm(); }
   } else {
-    // formState 不在记录里（旧版代码驳回导致）→ 从独立集合取
+    showToast('formState不在记录里，从备份集合加载...');
     const fs = await fbLoadFormState(id);
     if(fs){
+      showToast(`备份找到, travel行数=${(fs.rows?.travel||[]).length}`);
       try{ restoreFormState(fs); }catch(e){ console.warn(e); clearForm(); }
     } else {
       // 完全找不到快照 → 尽量还原基本信息
