@@ -1,0 +1,1614 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<title>公司报销管理系统</title>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+body{font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;background:#F2F4F7;color:#1a1a1a;font-size:14px;min-height:100vh}
+.shell{max-width:980px;margin:0 auto;padding:1rem}
+
+/* ── LOGIN ── */
+.login-wrap{display:flex;align-items:center;justify-content:center;min-height:80vh;padding:1rem}
+.login-card{background:#fff;border-radius:16px;padding:1.75rem;width:100%;max-width:360px;box-shadow:0 4px 24px rgba(0,0,0,.08)}
+.login-logo{text-align:center;font-size:19px;font-weight:700;margin-bottom:4px}
+.login-logo-sub{text-align:center;font-size:12px;color:#aaa;margin-bottom:1.5rem}
+.login-tabs{display:flex;border-bottom:1px solid #EEE;margin-bottom:1.25rem}
+.login-tab{flex:1;padding:9px;font-size:13px;text-align:center;cursor:pointer;color:#888;border-bottom:2px solid transparent;margin-bottom:-1px;transition:all .15s}
+.login-tab.active{color:#1a1a1a;font-weight:600;border-bottom-color:#2C3E50}
+.lfield{display:flex;flex-direction:column;gap:5px;margin-bottom:12px}
+.lfield label{font-size:12px;color:#666;font-weight:500}
+.lfield input,.lfield select{border:1px solid #E0E0E0;border-radius:9px;padding:10px 12px;font-size:14px;background:#fff;color:#1a1a1a;outline:none;width:100%;font-family:inherit;-webkit-appearance:none}
+.lfield input:focus,.lfield select:focus{border-color:#4A90E2;box-shadow:0 0 0 3px rgba(74,144,226,.1)}
+.login-err{font-size:12px;color:#E24B4A;margin-bottom:6px;min-height:16px}
+.btn-login{width:100%;background:#2C3E50;color:#fff;border:none;border-radius:10px;padding:12px;font-size:15px;font-weight:600;cursor:pointer;font-family:inherit;letter-spacing:.5px}
+.btn-login:active{opacity:.85}
+
+/* ── TOPBAR ── */
+.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;padding:.75rem 1rem;background:#fff;border-radius:12px;box-shadow:0 1px 4px rgba(0,0,0,.06)}
+.logo{font-size:15px;font-weight:700;color:#1a1a1a}
+.user-pill{display:flex;align-items:center;gap:8px}
+.user-avatar{width:32px;height:32px;border-radius:50%;background:#D6E4F0;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#1F3864;flex-shrink:0}
+.role-tag{font-size:11px;padding:3px 8px;border-radius:20px;font-weight:600}
+.role-approver{background:#FEF9E7;color:#7D6608}
+.role-staff{background:#EBF5FB;color:#1A5276}
+.btn-sm{background:transparent;border:1px solid #E0E0E0;border-radius:8px;padding:6px 12px;font-size:12px;color:#666;cursor:pointer;font-family:inherit;white-space:nowrap}
+.btn-sm:active{background:#F5F5F5}
+
+/* ── BOTTOM NAV (mobile) ── */
+.bottom-nav{display:none;position:fixed;bottom:0;left:0;right:0;background:#fff;border-top:1px solid #E8E8E8;z-index:50;padding-bottom:env(safe-area-inset-bottom)}
+.bottom-nav-inner{display:flex}
+.bnav-btn{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;padding:8px 4px;background:transparent;border:none;cursor:pointer;font-family:inherit;color:#888;font-size:10px;position:relative}
+.bnav-btn.active{color:#2C3E50}
+.bnav-btn.active .bnav-icon{color:#2C3E50}
+.bnav-icon{font-size:18px;line-height:1}
+.bnav-badge{position:absolute;top:6px;right:calc(50% - 14px);min-width:16px;height:16px;background:#E24B4A;color:#fff;border-radius:8px;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 3px}
+
+/* ── TOP NAV (desktop) ── */
+.top-nav{display:flex;gap:4px;background:#F2F4F7;padding:4px;border-radius:10px;flex-wrap:wrap}
+.nav-btn{padding:7px 13px;border:none;background:transparent;border-radius:7px;font-size:13px;color:#666;cursor:pointer;transition:all .15s;white-space:nowrap;position:relative;font-family:inherit}
+.nav-btn.active{background:#fff;color:#1a1a1a;font-weight:600;box-shadow:0 1px 4px rgba(0,0,0,.08)}
+.nav-badge{position:absolute;top:3px;right:3px;min-width:15px;height:15px;background:#E24B4A;color:#fff;border-radius:8px;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;padding:0 2px}
+
+/* ── PAGES ── */
+.page{display:none}.page.active{display:block}
+
+/* ── CARDS ── */
+.card{background:#fff;border-radius:14px;padding:1.1rem;margin-bottom:.875rem;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:.875rem}
+.card-title{font-size:14px;font-weight:700;color:#1a1a1a}
+.card-subtitle{font-size:11px;color:#aaa;margin-top:2px}
+
+/* ── FIELDS ── */
+.field-row{display:grid;gap:10px;margin-bottom:10px}
+.field-row.col2{grid-template-columns:1fr 1fr}
+.field-row.col3{grid-template-columns:1fr 1fr 1fr}
+.field-row.col4{grid-template-columns:1fr 1fr 1fr 1fr}
+.field{display:flex;flex-direction:column;gap:4px}
+.field label{font-size:12px;color:#666;font-weight:500}
+.field input,.field select,.field textarea{border:1px solid #E2E2E2;border-radius:9px;padding:9px 11px;font-size:13px;background:#fff;color:#1a1a1a;outline:none;width:100%;font-family:inherit;-webkit-appearance:none;transition:border .15s}
+.field input:focus,.field select:focus,.field textarea:focus{border-color:#4A90E2;box-shadow:0 0 0 3px rgba(74,144,226,.08)}
+.field input[readonly]{background:#F7F8FA;color:#666}
+.field textarea{resize:vertical;min-height:56px;line-height:1.5}
+
+/* ── METRICS ── */
+.metric-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:1rem}
+.metric{background:#fff;border-radius:12px;padding:12px 14px;box-shadow:0 1px 4px rgba(0,0,0,.05)}
+.metric-label{font-size:11px;color:#aaa;margin-bottom:4px;font-weight:500}
+.metric-value{font-size:20px;font-weight:700;color:#1a1a1a;line-height:1.2}
+.metric-sub{font-size:11px;color:#bbb;margin-top:2px}
+
+/* ── TABLES ── */
+.items-table{width:100%;border-collapse:collapse;font-size:13px;table-layout:fixed}
+.items-table th{font-size:11px;font-weight:600;color:#999;text-align:left;padding:7px 8px;border-bottom:1px solid #F0F0F0;background:#FAFAFA;white-space:nowrap}
+.items-table td{padding:6px 8px;border-bottom:1px solid #F5F5F5;color:#1a1a1a;vertical-align:middle}
+.items-table td input,.items-table td select{border:1px solid #E2E2E2;border-radius:7px;padding:5px 7px;font-size:12px;background:#fff;color:#1a1a1a;outline:none;width:100%;font-family:inherit;-webkit-appearance:none}
+.del-btn{background:transparent;border:none;cursor:pointer;font-size:18px;line-height:1;padding:2px 5px;border-radius:5px;color:#E24B4A}
+.date-td{min-width:130px;padding-right:10px!important}
+.date-cell-single input{width:100%}
+.hotel-checkin,.hotel-checkout{width:100%}
+.add-row-btn{margin-top:8px;background:transparent;border:1.5px dashed #D5D5D5;border-radius:9px;padding:9px;font-size:13px;color:#aaa;cursor:pointer;width:100%;font-family:inherit}
+.add-row-btn:active{background:#F8F8F8}
+
+/* ── TOTALS / FX ── */
+.fx-box{background:#EBF5FB;border-radius:10px;padding:10px 14px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:8px}
+.total-row{display:flex;align-items:center;justify-content:flex-end;gap:12px;padding:10px 0 0;border-top:1px solid #F0F0F0;margin-top:8px}
+.total-label{font-size:13px;color:#888}
+.total-amount{font-size:24px;font-weight:700;color:#1a1a1a}
+
+/* ── ATTACHMENTS ── */
+.attach-zone{border:1.5px dashed #CCC;border-radius:12px;padding:.875rem;background:#FAFAFA;transition:all .2s}
+.attach-zone.drag-over{border-color:#4A90E2;background:#EBF5FB}
+.attach-drop-area{display:flex;flex-direction:column;align-items:center;gap:6px;padding:8px 0;cursor:pointer}
+.attach-icon-wrap{width:40px;height:40px;background:#EBEBEB;border-radius:10px;display:flex;align-items:center;justify-content:center}
+.attach-list{display:flex;flex-direction:column;gap:6px;margin-top:10px}
+.attach-item{display:flex;align-items:center;gap:8px;padding:7px 10px;background:#fff;border:1px solid #EBEBEB;border-radius:10px}
+.attach-thumb{width:38px;height:38px;border-radius:7px;object-fit:cover;flex-shrink:0;cursor:pointer;border:1px solid #E0E0E0}
+.attach-thumb-pdf{width:38px;height:38px;border-radius:7px;background:#FDEDEC;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:10px;font-weight:700;color:#922B21;cursor:pointer;border:1px solid #FADBD8}
+.attach-name{font-size:12px;color:#444;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+.attach-size{font-size:11px;color:#bbb;flex-shrink:0;white-space:nowrap}
+.attach-del{background:transparent;border:none;cursor:pointer;color:#CCC;font-size:18px;padding:2px 4px;flex-shrink:0;line-height:1}
+.attach-del:active{color:#E24B4A}
+.attach-preview-btn{font-size:11px;color:#4A90E2;background:transparent;border:none;cursor:pointer;padding:2px 6px;flex-shrink:0;font-family:inherit;white-space:nowrap}
+.attach-count-badge{display:inline-flex;align-items:center;gap:3px;font-size:11px;padding:2px 8px;border-radius:20px;background:#EBF5FB;color:#1A5276;border:1px solid #BDD7EE;cursor:pointer;white-space:nowrap}
+
+/* ── BUTTONS ── */
+.action-row{display:flex;gap:8px;justify-content:flex-end;margin-top:.875rem;flex-wrap:wrap}
+.btn{padding:9px 20px;font-size:13px;border-radius:10px;cursor:pointer;border:none;font-family:inherit;font-weight:500;transition:all .15s;white-space:nowrap}
+.btn:active{opacity:.85;transform:scale(.98)}
+.btn-secondary{background:#fff;border:1px solid #D8D8D8;color:#555}
+.btn-draft{background:#EBF5FB;color:#1A5276;border:1px solid #BDD7EE}
+.btn-primary{background:#2C3E50;color:#fff}
+.btn-excel{background:#fff;border:1px solid #27AE60;color:#27AE60;display:flex;align-items:center;gap:6px}
+.btn-approve{background:#EAFAF1;color:#1E8449;border:none;font-size:12px;padding:6px 11px;border-radius:7px;cursor:pointer;font-family:inherit;font-weight:500}
+.btn-reject{background:#FDEDEC;color:#922B21;border:none;font-size:12px;padding:6px 11px;border-radius:7px;cursor:pointer;font-family:inherit;font-weight:500}
+.btn-resubmit{background:#EBF5FB;color:#1A5276;border:none;font-size:12px;padding:6px 11px;border-radius:7px;cursor:pointer;font-family:inherit;font-weight:500}
+.btn-danger-sm{background:#FDEDEC;color:#922B21;border:1px solid #FADBD8;border-radius:7px;padding:5px 10px;font-size:12px;cursor:pointer;font-family:inherit}
+
+/* ── BADGES ── */
+.badge{display:inline-block;font-size:11px;padding:3px 9px;border-radius:20px;font-weight:600}
+.badge-pending{background:#FEF9E7;color:#7D6608}
+.badge-approved{background:#EAFAF1;color:#1E8449}
+.badge-rejected{background:#FDEDEC;color:#922B21}
+.badge-draft{background:#EBF5FB;color:#1A5276}
+
+/* ── RECORD TABLE ── */
+.record-table{width:100%;border-collapse:collapse;font-size:13px}
+.record-table th{font-size:11px;font-weight:600;color:#999;padding:9px 10px;text-align:left;border-bottom:2px solid #F0F0F0;background:#FAFAFA;white-space:nowrap}
+.record-table td{padding:9px 10px;border-bottom:1px solid #F5F5F5;vertical-align:top}
+.record-table tbody tr:hover td{background:#FAFBFF}
+.approval-log{margin-top:5px;font-size:11px;color:#666;background:#F8F8F8;border-radius:7px;padding:5px 8px;line-height:1.7;border-left:3px solid #E0E0E0}
+.approval-log.approved{border-left-color:#27AE60}
+.approval-log.rejected{border-left-color:#E74C3C}
+
+/* ── MODALS ── */
+.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;justify-content:center;z-index:200;padding-bottom:env(safe-area-inset-bottom)}
+.modal-sheet{background:#fff;border-radius:20px 20px 0 0;padding:1.5rem;width:100%;max-width:480px;max-height:90vh;overflow-y:auto}
+.modal-handle{width:40px;height:4px;background:#E0E0E0;border-radius:2px;margin:0 auto 1.25rem}
+.modal-title{font-size:16px;font-weight:700;margin-bottom:4px}
+.modal-sub{font-size:13px;color:#888;margin-bottom:1rem;padding:8px 10px;background:#F8F8F8;border-radius:8px}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:1.25rem}
+
+.preview-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.6);display:flex;flex-direction:column;z-index:300}
+.preview-topbar{display:flex;align-items:center;justify-content:space-between;padding:.75rem 1rem;background:rgba(0,0,0,.7);backdrop-filter:blur(10px);flex-shrink:0}
+.preview-filename{font-size:13px;color:#fff;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1;margin-right:12px}
+.preview-content{flex:1;display:flex;align-items:center;justify-content:center;overflow:auto;padding:1rem}
+.preview-content img{max-width:100%;max-height:100%;border-radius:8px}
+.preview-content iframe{width:100%;height:100%;border:none}
+
+/* ── SETTINGS ── */
+.user-row-card{display:flex;align-items:center;gap:10px;padding:10px 12px;background:#F8F8F8;border-radius:10px;margin-bottom:8px}
+.user-row-avatar{width:34px;height:34px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0}
+.divider{height:1px;background:#F0F0F0;margin:1rem 0}
+
+/* ── STORAGE BAR ── */
+.storage-bar{display:flex;align-items:center;gap:8px;background:#fff;border-radius:10px;padding:8px 12px;margin-bottom:.875rem;font-size:12px;color:#888;box-shadow:0 1px 4px rgba(0,0,0,.04);flex-wrap:wrap}
+.storage-dot{width:7px;height:7px;border-radius:50%;background:#27AE60;flex-shrink:0}
+
+/* ── TOAST ── */
+.toast{position:fixed;bottom:80px;left:50%;transform:translateX(-50%);background:#2C3E50;color:#fff;padding:10px 20px;border-radius:24px;font-size:13px;opacity:0;transition:opacity .3s;pointer-events:none;z-index:999;white-space:nowrap;box-shadow:0 4px 20px rgba(0,0,0,.2);max-width:90vw;text-align:center}
+.toast.show{opacity:1}
+.empty-state{text-align:center;padding:2.5rem 1rem;color:#bbb;font-size:13px}
+
+/* ── RESPONSIVE ── */
+@media(max-width:640px){
+  .shell{padding:.75rem}
+  .metric-grid{grid-template-columns:1fr 1fr}
+  .field-row.col3,.field-row.col4{grid-template-columns:1fr 1fr}
+  .field-row.col2{grid-template-columns:1fr}
+  .top-nav{display:none}
+  .bottom-nav{display:block}
+  body{padding-bottom:60px}
+  .topbar{padding:.625rem .875rem}
+  .items-table{font-size:12px}
+  .items-table th,.items-table td{padding:5px 6px}
+  .total-amount{font-size:20px}
+  .toast{bottom:72px}
+  .modal-overlay{align-items:flex-end}
+  .btn{padding:10px 16px;font-size:13px}
+}
+@media(min-width:641px){
+  .bottom-nav{display:none!important}
+  .modal-overlay{align-items:center}
+  .modal-sheet{border-radius:16px;margin:1rem;max-height:85vh}
+  .modal-handle{display:none}
+  body{padding-bottom:0}
+}
+</style>
+</head>
+<body>
+<div class="shell">
+
+<!-- ═══ LOGIN ═══ -->
+<div id="login-screen">
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="login-logo">报销管理系统</div>
+      <div class="login-logo-sub">企业内部费用报销与审批平台</div>
+      <div class="login-tabs">
+        <div class="login-tab active" onclick="setLoginRole('staff',this)">员工登录</div>
+        <div class="login-tab" onclick="setLoginRole('approver',this)">审批人登录</div>
+      </div>
+      <div class="lfield"><label>工号</label>
+        <select id="login-id-select" style="display:none"></select>
+        <input type="text" id="login-id" placeholder="输入工号"/>
+      </div>
+      <div class="lfield"><label>密码</label><input type="password" id="login-pw" placeholder="输入密码" onkeydown="if(event.key==='Enter')doLogin()"/></div>
+      <div class="login-err" id="login-err"></div>
+      <button class="btn-login" onclick="doLogin()">登 录</button>
+      <div style="margin-top:14px;font-size:12px;color:#bbb;text-align:center">
+        账号由审批人在「账号管理」中创建
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ MAIN APP ═══ -->
+<div id="main-app" style="display:none">
+
+  <div class="topbar">
+    <div class="logo">报销管理系统</div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <div class="top-nav" id="top-nav"></div>
+      <div class="user-pill">
+        <div class="user-avatar" id="user-avatar">--</div>
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <span style="font-size:13px;font-weight:600;color:#1a1a1a" id="user-name-display"></span>
+          <span class="role-tag" id="role-tag-display"></span>
+        </div>
+        <button class="btn-sm" onclick="logout()">退出</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="storage-bar">
+    <div class="storage-dot" id="storage-dot"></div>
+    <span id="storage-status">加载中...</span>
+    <span id="storage-usage" style="margin-left:4px"></span>
+    <div style="margin-left:auto;display:flex;gap:8px">
+      <button class="btn btn-excel" id="export-all-btn" onclick="exportExcel('all')" style="display:none;font-size:12px;padding:5px 12px">
+        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="8 15 12 12 16 15"/></svg>
+        导出 Excel
+      </button>
+      <button class="btn" id="export-zip-btn" onclick="downloadAllZip()" style="display:none;font-size:12px;padding:5px 12px;border:1px solid #1A5276;color:#1A5276;background:#fff">
+        📦 导出全部附件 ZIP
+      </button>
+    </div>
+  </div>
+
+  <!-- ─── 新建申请 ─── -->
+  <div id="page-new" class="page active">
+    <div class="metric-grid">
+      <div class="metric"><div class="metric-label">我的申请</div><div class="metric-value" id="m-count">0</div><div class="metric-sub">总笔数</div></div>
+      <div class="metric"><div class="metric-label">待审批</div><div class="metric-value" id="m-pending">0</div><div class="metric-sub">笔</div></div>
+      <div class="metric"><div class="metric-label">已批准</div><div class="metric-value" id="m-approved-amt">¥0</div><div class="metric-sub">累计</div></div>
+      <div class="metric"><div class="metric-label">草稿</div><div class="metric-value" id="m-draft">0</div><div class="metric-sub">未提交</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><span class="card-title">基本信息</span></div>
+      <div class="field-row col3">
+        <div class="field"><label>申请人</label><input type="text" id="emp-name" readonly/></div>
+        <div class="field"><label>部门</label><input type="text" id="emp-dept" readonly/></div>
+        <div class="field"><label>申请日期</label><input type="date" id="apply-date"/></div>
+      </div>
+      <div class="field-row col2">
+        <div class="field"><label>费用类型</label>
+          <select id="exp-type" onchange="switchType()">
+            <option value="daily">日常费用</option>
+            <option value="travel">国内差旅</option>
+            <option value="overseas">海外出差</option>
+            <option value="car">租车 / 汽油</option>
+          </select>
+        </div>
+        <div class="field"><label>费用事由 *</label><input type="text" id="exp-reason" placeholder="简要说明报销事由..."/></div>
+      </div>
+    </div>
+
+    <!-- 日常 -->
+    <div id="panel-daily" class="exp-panel">
+      <div class="card">
+        <div class="card-header"><span class="card-title">日常费用明细</span></div>
+        <div style="overflow-x:auto">
+        <table class="items-table"><thead><tr>
+          <th style="width:20%">类别</th><th style="width:26%">说明</th><th style="width:14%">日期</th>
+          <th style="width:14%">金额(¥)</th><th style="width:18%">票据类型</th><th style="width:8%"></th>
+        </tr></thead><tbody id="daily-body"></tbody></table>
+        </div>
+        <button class="add-row-btn" onclick="addRow('daily')">＋ 添加明细行</button>
+        <div class="total-row"><span class="total-label">合计</span><span class="total-amount" id="daily-total">¥0.00</span></div>
+      </div>
+    </div>
+
+    <!-- 国内差旅 -->
+    <div id="panel-travel" class="exp-panel" style="display:none">
+      <div class="card">
+        <div class="card-header"><span class="card-title">差旅信息</span></div>
+        <div class="field-row col2">
+          <div class="field"><label>出发地</label><input type="text" id="travel-from" placeholder="如：北京"/></div>
+          <div class="field"><label>目的地</label><input type="text" id="travel-to" placeholder="如：上海"/></div>
+        </div>
+        <div class="field-row col2">
+          <div class="field"><label>出发日期</label><input type="date" id="travel-start" onchange="calcDays()"/></div>
+          <div class="field"><label>返回日期</label><input type="date" id="travel-end" onchange="calcDays()"/></div>
+        </div>
+        <div style="font-size:13px;color:#666;padding:9px 12px;background:#F8F8F8;border-radius:10px;display:flex;gap:20px;flex-wrap:wrap">
+          <span>天数：<strong id="travel-days" style="color:#1a1a1a">—</strong></span>
+          <span>补贴(¥<span id="domestic-rate-display">200</span>/天)：<strong id="travel-subsidy" style="color:#1a1a1a">¥0</strong></span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">差旅费用明细</span></div>
+        <div style="overflow-x:auto">
+        <table class="items-table"><thead><tr>
+          <th style="width:20%">类别</th><th style="width:26%">说明</th><th style="width:14%">日期</th>
+          <th style="width:14%">金额(¥)</th><th style="width:18%">票据类型</th><th style="width:8%"></th>
+        </tr></thead><tbody id="travel-body"></tbody></table>
+        </div>
+        <button class="add-row-btn" onclick="addRow('travel')">＋ 添加明细行</button>
+        <div class="total-row"><span class="total-label">合计(含补贴)</span><span class="total-amount" id="travel-total">¥0.00</span></div>
+      </div>
+    </div>
+
+    <!-- 海外出差 -->
+    <div id="panel-overseas" class="exp-panel" style="display:none">
+      <div class="card">
+        <div class="card-header"><span class="card-title">海外出差信息</span></div>
+        <div class="field-row col2">
+          <div class="field"><label>目的国家/城市</label><input type="text" id="os-dest" placeholder="如：日本 东京"/></div>
+          <div class="field"><label>外币币种</label>
+            <select id="os-currency" onchange="updateOsFx()">
+              <option value="USD">美元 USD</option><option value="EUR">欧元 EUR</option><option value="JPY">日元 JPY</option>
+              <option value="GBP">英镑 GBP</option><option value="AUD">澳元 AUD</option><option value="HKD">港币 HKD</option>
+              <option value="SGD">新加坡元 SGD</option><option value="KRW">韩元 KRW</option>
+            </select>
+          </div>
+        </div>
+        <div class="field-row col2">
+          <div class="field"><label>出发日期</label><input type="date" id="os-start" onchange="calcOsDays()"/></div>
+          <div class="field"><label>返回日期</label><input type="date" id="os-end" onchange="calcOsDays()"/></div>
+        </div>
+        <div class="field-row col2">
+          <div class="field"><label>汇率（1外币=?人民币）</label><input type="number" id="os-rate" step="0.0001" value="7.2500" oninput="updateOsFx()"/></div>
+          <div class="field"><label>外币总金额</label><input type="number" id="os-foreign-total" placeholder="0.00" oninput="updateOsFx()"/></div>
+        </div>
+        <div class="fx-box">
+          <span style="font-size:12px;color:#555">换算：</span>
+          <span style="font-size:16px;font-weight:700;color:#1a5276" id="fx-result">¥0.00</span>
+          <span style="font-size:12px;color:#888;background:#fff;border:1px solid #BDD7EE;border-radius:20px;padding:2px 10px" id="fx-rate-tag">1 USD = 7.2500 CNY</span>
+        </div>
+        <div style="font-size:13px;color:#666;padding:9px 12px;background:#F8F8F8;border-radius:10px;margin-top:10px;display:flex;gap:20px;flex-wrap:wrap;align-items:center">
+          <span>天数：<strong id="os-days-display" style="color:#1a1a1a">—</strong></span>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none">
+            <input type="checkbox" id="os-subsidy-enabled" checked onchange="calcOverseasTotal()" style="accentColor:#2C3E50;width:15px;height:15px;cursor:pointer"/>
+            <span>海外补贴(¥<span id="overseas-rate-display">500</span>/天)：<strong id="os-subsidy" style="color:#1a1a1a">¥0</strong></span>
+          </label>
+          <span id="os-subsidy-off-hint" style="font-size:11px;color:#E24B4A;display:none">补贴已取消，下次另行申报</span>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">海外费用明细</span></div>
+        <div style="overflow-x:auto">
+        <table class="items-table"><thead><tr>
+          <th style="width:14%">类别</th><th style="width:18%">说明</th><th style="width:16%">日期</th>
+          <th style="width:12%">外币</th><th style="width:12%">人民币</th><th style="width:18%">票据类型</th><th style="width:10%"></th>
+        </tr></thead><tbody id="overseas-body"></tbody></table>
+        </div>
+        <button class="add-row-btn" onclick="addRow('overseas')">＋ 添加明细行</button>
+        <div class="total-row"><span class="total-label">人民币合计(含补贴)</span><span class="total-amount" id="overseas-total">¥0.00</span></div>
+      </div>
+    </div>
+
+    <!-- 租车 -->
+    <div id="panel-car" class="exp-panel" style="display:none">
+      <div class="card">
+        <div class="card-header"><span class="card-title">租车信息</span></div>
+        <div class="field-row col2">
+          <div class="field"><label>租车公司</label><input type="text" id="car-company" placeholder="如：神州租车"/></div>
+          <div class="field"><label>车型</label><input type="text" id="car-model" placeholder="如：丰田凯美瑞"/></div>
+        </div>
+        <div class="field-row col2">
+          <div class="field"><label>租用开始</label><input type="date" id="car-start" onchange="calcCarCost()"/></div>
+          <div class="field"><label>租用结束</label><input type="date" id="car-end" onchange="calcCarCost()"/></div>
+        </div>
+        <div class="field-row col3">
+          <div class="field"><label>日租金(¥)</label><input type="number" id="car-daily" placeholder="0.00" oninput="calcCarCost()"/></div>
+          <div class="field"><label>保险费(¥)</label><input type="number" id="car-insurance" placeholder="0.00" oninput="calcCarCost()"/></div>
+          <div class="field"><label>租车小计(¥)</label><input type="text" id="car-subtotal" readonly/></div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="card-header"><span class="card-title">油费 / 停车 / 过路费</span></div>
+        <div style="overflow-x:auto">
+        <table class="items-table"><thead><tr>
+          <th style="width:22%">类型</th><th style="width:32%">说明</th><th style="width:18%">日期</th><th style="width:18%">金额(¥)</th><th style="width:10%"></th>
+        </tr></thead><tbody id="car-body"></tbody></table>
+        </div>
+        <button class="add-row-btn" onclick="addRow('car')">＋ 添加明细行</button>
+        <div class="total-row"><span class="total-label">租车+油费合计</span><span class="total-amount" id="car-total">¥0.00</span></div>
+      </div>
+    </div>
+
+    <!-- 附件 -->
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">发票 / 票据附件</span>
+        <span style="font-size:11px;color:#bbb">JPG·PNG·PDF，每张≤3MB</span>
+      </div>
+      <div class="attach-zone" id="attach-zone"
+        ondragover="event.preventDefault();this.classList.add('drag-over')"
+        ondragleave="this.classList.remove('drag-over')"
+        ondrop="handleDrop(event)">
+        <div class="attach-drop-area" onclick="document.getElementById('attach-input').click()">
+          <div class="attach-icon-wrap">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#999" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+          </div>
+          <span style="font-size:13px;color:#888">点击上传 或 拖拽文件到此处</span>
+          <span style="font-size:11px;color:#bbb">支持 JPG · PNG · PDF，最多 10 个</span>
+        </div>
+        <div class="attach-list" id="attach-list"></div>
+      </div>
+      <input type="file" id="attach-input" multiple accept="image/jpeg,image/png,image/jpg,application/pdf" style="display:none" onchange="handleFileSelect(this)"/>
+    </div>
+
+    <div class="card">
+      <div class="field"><label>备注 / 说明</label>
+        <textarea id="remark" placeholder="如有特殊说明，请在此填写..."></textarea>
+      </div>
+    </div>
+    <div class="action-row">
+      <button class="btn btn-secondary" onclick="clearForm()">清空</button>
+      <button class="btn btn-draft" onclick="saveDraft()">保存草稿</button>
+      <button class="btn btn-primary" onclick="submitForm()">提交审批</button>
+    </div>
+  </div>
+
+  <!-- ─── 我的申请 ─── -->
+  <div id="page-records" class="page">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">我的申请记录</span>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <select style="border:1px solid #E0E0E0;border-radius:8px;padding:7px 10px;font-size:12px;background:#fff;outline:none;font-family:inherit;-webkit-appearance:none" id="filter-status" onchange="renderMyRecords()">
+            <option value="">全部状态</option><option value="pending">待审批</option>
+            <option value="approved">已批准</option><option value="rejected">已驳回</option><option value="draft">草稿</option>
+          </select>
+          <button class="btn btn-excel" onclick="exportExcel('my')" style="font-size:12px;padding:6px 12px">
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="8 15 12 12 16 15"/></svg>
+            导出 Excel
+          </button>
+        </div>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="record-table"><thead><tr>
+          <th>编号</th><th>类型</th><th>事由</th><th>金额</th><th>日期</th><th>附件</th><th>状态</th><th>审批信息</th><th>操作</th>
+        </tr></thead><tbody id="my-records-body"></tbody></table>
+      </div>
+      <div id="my-records-empty" class="empty-state" style="display:none">暂无申请记录，点击「新建申请」开始填写</div>
+    </div>
+  </div>
+
+  <!-- ─── 待审批 ─── -->
+  <div id="page-approve" class="page">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">待审批申请</span>
+        <span id="pending-count-tip" style="font-size:12px;color:#aaa"></span>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="record-table"><thead><tr>
+          <th>编号</th><th>申请人</th><th>部门</th><th>类型</th><th>事由</th><th>金额</th><th>日期</th><th>附件</th><th>提交时间</th><th>操作</th>
+        </tr></thead><tbody id="approve-body"></tbody></table>
+      </div>
+      <div id="approve-empty" class="empty-state" style="display:none">暂无待审批申请 ✓</div>
+    </div>
+  </div>
+
+  <!-- ─── 全部记录 ─── -->
+  <div id="page-all" class="page">
+    <div class="card">
+      <div class="card-header">
+        <span class="card-title">全部申请记录</span>
+        <select style="border:1px solid #E0E0E0;border-radius:8px;padding:7px 10px;font-size:12px;background:#fff;outline:none;font-family:inherit;-webkit-appearance:none" id="all-filter-status" onchange="renderAllRecords()">
+          <option value="">全部状态</option><option value="pending">待审批</option>
+          <option value="approved">已批准</option><option value="rejected">已驳回</option>
+        </select>
+      </div>
+      <div style="overflow-x:auto">
+        <table class="record-table"><thead><tr>
+          <th>编号</th><th>申请人</th><th>部门</th><th>类型</th><th>事由</th><th>金额</th><th>日期</th><th>附件</th><th>状态</th><th>审批人</th><th>审批时间</th><th>审批意见</th>
+        </tr></thead><tbody id="all-records-body"></tbody></table>
+      </div>
+      <div id="all-records-empty" class="empty-state" style="display:none">暂无记录</div>
+    </div>
+  </div>
+
+  <!-- ─── 汇率工具 ─── -->
+  <div id="page-fx" class="page">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:.875rem">
+      <div class="card">
+        <div class="card-header"><span class="card-title">汇率换算</span></div>
+        <div class="field-row col2">
+          <div class="field"><label>外币金额</label><input type="number" id="fx-input" value="1000" oninput="calcFx()"/></div>
+          <div class="field"><label>币种</label>
+            <select id="fx-from" onchange="setFxRate()">
+              <option value="USD">美元 USD</option><option value="EUR">欧元 EUR</option><option value="JPY">日元 JPY</option>
+              <option value="GBP">英镑 GBP</option><option value="AUD">澳元 AUD</option><option value="HKD">港币 HKD</option>
+              <option value="SGD">新加坡元 SGD</option><option value="KRW">韩元 KRW</option>
+            </select>
+          </div>
+        </div>
+        <div class="field-row col2">
+          <div class="field"><label>汇率（1外币=?人民币）</label><input type="number" id="fx-rate-input" step="0.0001" value="7.2500" oninput="calcFx()"/></div>
+          <div class="field"><label>人民币结果</label><input type="text" id="fx-output" readonly/></div>
+        </div>
+        <div class="fx-box"><span style="font-size:12px;color:#555">反向：</span><span id="fx-reverse" style="font-size:14px;font-weight:600;color:#1a5276"></span></div>
+      </div>
+      <div class="card">
+        <div class="card-header">
+          <span class="card-title">参考汇率</span>
+          <button class="btn btn-secondary" style="font-size:12px;padding:5px 11px" onclick="resetRates()">恢复默认</button>
+        </div>
+        <table style="width:100%;font-size:13px;border-collapse:collapse"><thead><tr>
+          <th style="font-size:11px;font-weight:600;color:#999;text-align:left;padding:6px 8px;border-bottom:1px solid #F0F0F0;background:#FAFAFA">币种</th>
+          <th style="font-size:11px;font-weight:600;color:#999;text-align:right;padding:6px 8px;border-bottom:1px solid #F0F0F0;background:#FAFAFA">汇率</th>
+          <th style="font-size:11px;font-weight:600;color:#999;text-align:right;padding:6px 8px;border-bottom:1px solid #F0F0F0;background:#FAFAFA">修改</th>
+        </tr></thead><tbody id="fx-rates-body"></tbody></table>
+        <p style="font-size:11px;color:#bbb;margin-top:8px">* 请以中国银行当日牌价为准</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── 账号管理 ─── -->
+  <div id="page-settings" class="page">
+    <!-- 补助标准 -->
+    <div class="card">
+      <div class="card-header"><span class="card-title">补助标准设置</span></div>
+      <div class="field-row col2">
+        <div class="field">
+          <label>国内差旅补贴（元/天）</label>
+          <input type="number" id="domestic-allowance" placeholder="200" min="0" oninput="saveAllowance()"/>
+        </div>
+        <div class="field">
+          <label>海外出差补贴（元/天）</label>
+          <input type="number" id="overseas-allowance" placeholder="500" min="0" oninput="saveAllowance()"/>
+        </div>
+      </div>
+      <p style="font-size:12px;color:#aaa;margin-top:4px">修改后立即生效，新建申请时自动应用</p>
+    </div>
+
+    <!-- 员工管理 -->
+    <div class="card">
+      <div class="card-header"><span class="card-title">员工账号</span></div>
+      <div id="staff-list"></div>
+      <div class="divider"></div>
+      <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:#444">添加新员工</div>
+      <div class="field-row col3">
+        <div class="field"><label>工号</label><input type="text" id="new-staff-id" placeholder="如 EMP005"/></div>
+        <div class="field"><label>姓名</label><input type="text" id="new-staff-name" placeholder="请输入姓名"/></div>
+        <div class="field"><label>部门</label><input type="text" id="new-staff-dept" placeholder="如 技术部"/></div>
+      </div>
+      <div class="field-row col2">
+        <div class="field"><label>初始密码</label><input type="text" id="new-staff-pw" placeholder="至少6位"/></div>
+        <div class="field" style="justify-content:flex-end"><label>&nbsp;</label>
+          <button class="btn btn-primary" onclick="addStaff()">添加员工</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 审批人管理 -->
+    <div class="card">
+      <div class="card-header"><span class="card-title">审批人账号</span></div>
+      <div id="approver-list"></div>
+      <div class="divider"></div>
+      <div style="font-size:13px;font-weight:600;margin-bottom:10px;color:#444">添加新审批人</div>
+      <div class="field-row col3">
+        <div class="field"><label>工号</label><input type="text" id="new-apr-id" placeholder="如 APR002"/></div>
+        <div class="field"><label>姓名</label><input type="text" id="new-apr-name" placeholder="请输入姓名"/></div>
+        <div class="field"><label>部门</label><input type="text" id="new-apr-dept" placeholder="如 管理层"/></div>
+      </div>
+      <div class="field-row col2">
+        <div class="field"><label>初始密码</label><input type="text" id="new-apr-pw" placeholder="至少6位"/></div>
+        <div class="field" style="justify-content:flex-end"><label>&nbsp;</label>
+          <button class="btn btn-primary" onclick="addApprover()">添加审批人</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── 预览 modal ─── -->
+  <div id="preview-overlay" class="preview-overlay" style="display:none">
+    <div class="preview-topbar">
+      <span class="preview-filename" id="preview-filename"></span>
+      <div style="display:flex;gap:8px;flex-shrink:0">
+        <button class="btn-sm" style="color:#fff;border-color:rgba(255,255,255,.3)" onclick="downloadPreview()">下载</button>
+        <button class="btn-sm" style="color:#fff;border-color:rgba(255,255,255,.3)" onclick="closePreview()">关闭</button>
+      </div>
+    </div>
+    <div class="preview-content" id="preview-content"></div>
+  </div>
+
+  <!-- ─── 审批 modal ─── -->
+  <div id="modal-overlay" class="modal-overlay" style="display:none">
+    <div class="modal-sheet">
+      <div class="modal-handle"></div>
+      <div class="modal-title" id="modal-title"></div>
+      <div class="modal-sub" id="modal-sub"></div>
+      <div class="field">
+        <label id="modal-comment-label" style="font-size:12px;color:#666;font-weight:500;margin-bottom:4px;display:block">审批意见</label>
+        <textarea id="modal-comment" style="border:1px solid #E0E0E0;border-radius:9px;padding:9px 11px;font-size:13px;background:#fff;color:#1a1a1a;resize:vertical;min-height:88px;width:100%;outline:none;font-family:inherit;line-height:1.5" placeholder="请填写审批意见（驳回时必填）..."></textarea>
+      </div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary" onclick="closeModal()">取消</button>
+        <button class="btn" id="modal-confirm-btn" onclick="confirmApproval()">确认</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<!-- Bottom Nav -->
+<nav class="bottom-nav" id="bottom-nav" style="display:none">
+  <div class="bottom-nav-inner" id="bottom-nav-inner"></div>
+</nav>
+
+<div class="toast" id="toast"></div>
+
+<script>
+// ══════════════════════════════════════════════════════
+// DATA
+// ══════════════════════════════════════════════════════
+const DEFAULT_RATES={USD:7.2500,EUR:7.8600,JPY:0.0481,GBP:9.1200,AUD:4.6800,HKD:0.9280,SGD:5.3600,KRW:0.0052};
+const RATE_LABELS={USD:'美元 USD',EUR:'欧元 EUR',JPY:'日元 JPY',GBP:'英镑 GBP',AUD:'澳元 AUD',HKD:'港币 HKD',SGD:'新加坡元 SGD',KRW:'韩元 KRW'};
+const DAILY_CATS=['餐饮','出租车','住宿','办公用品','培训','会议','接待','其他'];
+const TRAVEL_CATS=['机票/高铁','出租车','住宿','餐饮','行李托运','其他'];
+const OVERSEAS_CATS=['机票','住宿','餐饮','出租车','租车费','签证','通讯','汽油费','接待','其他'];
+const CAR_CATS=['汽油费','停车费','过路/过桥费','洗车费','其他'];
+const RECEIPT_OPTS=['纸质发票','电子发票','收据','信用卡单','无票'];
+const TYPE_MAP={daily:'日常费用',travel:'国内差旅',overseas:'海外出差',car:'租车/汽油'};
+const STATUS_LABEL={pending:'待审批',approved:'已批准',rejected:'已驳回',draft:'草稿'};
+const MAX_FILE=3*1024*1024;
+
+let RATES={...DEFAULT_RATES};
+let USERS={};    // loaded from localStorage
+let records=[];
+let currentUser=null;
+let loginRole='staff';
+let pendingApprovalAction={id:null,action:null};
+let currentAttachments=[];
+let previewFile=null;
+let DOMESTIC_ALLOWANCE=200;
+let OVERSEAS_ALLOWANCE=500;
+
+// ── PERSIST ────────────────────────────────────────────
+function lsGet(k,def=null){try{const v=localStorage.getItem(k);return v!==null?JSON.parse(v):def;}catch(e){return def;}}
+function lsSet(k,v){try{localStorage.setItem(k,JSON.stringify(v));return true;}catch(e){showToast('存储空间不足，请清理旧记录');return false;}}
+
+function loadAll(){
+  USERS=lsGet('expense:users',{
+    APR001:{name:'管理员',dept:'管理层',role:'approver',pw:'admin888'}
+  });
+  records=lsGet('expense:records',[]);
+  RATES={...DEFAULT_RATES,...lsGet('expense:rates',{})};
+  DOMESTIC_ALLOWANCE=lsGet('expense:domestic_allowance',200);
+  OVERSEAS_ALLOWANCE=lsGet('expense:overseas_allowance',500);
+}
+function saveUsers(){lsSet('expense:users',USERS);buildLoginSelects();}
+function saveRecords(){lsSet('expense:records',records);updateStorageDisplay();updatePendingBadge();}
+function saveRates(){lsSet('expense:rates',RATES);}
+function saveAllowance(){
+  const d=parseFloat(document.getElementById('domestic-allowance').value)||200;
+  const o=parseFloat(document.getElementById('overseas-allowance').value)||500;
+  DOMESTIC_ALLOWANCE=d;OVERSEAS_ALLOWANCE=o;
+  lsSet('expense:domestic_allowance',d);lsSet('expense:overseas_allowance',o);
+  document.querySelectorAll('.domestic-rate-display,.domestic-rate-display2,[id="domestic-rate-display"]').forEach(el=>el.textContent=d);
+  document.querySelectorAll('[id="overseas-rate-display"]').forEach(el=>el.textContent=o);
+  showToast('补助标准已保存');
+}
+
+function updateStorageDisplay(){
+  document.getElementById('storage-status').textContent='本地存储 · '+records.length+'条记录';
+  try{
+    let total=0;for(let k in localStorage)if(Object.prototype.hasOwnProperty.call(localStorage,k))total+=((localStorage[k]||'').length*2);
+    const mb=(total/1024/1024).toFixed(1);
+    document.getElementById('storage-usage').textContent='已用 '+mb+'MB';
+  }catch(e){}
+}
+
+// ══════════════════════════════════════════════════════
+// NAV BUILD
+// ══════════════════════════════════════════════════════
+const NAV_STAFF=[
+  {id:'new',label:'新建申请',icon:'✏️'},
+  {id:'records',label:'我的申请',icon:'📋'},
+  {id:'fx',label:'汇率工具',icon:'💱'},
+];
+const NAV_APPROVER=[
+  {id:'approve',label:'待审批',icon:'⏳',badge:true},
+  {id:'all',label:'全部记录',icon:'📊'},
+  {id:'fx',label:'汇率',icon:'💱'},
+  {id:'settings',label:'管理',icon:'⚙️'},
+];
+
+function buildNav(role){
+  const items=role==='approver'?NAV_APPROVER:NAV_STAFF;
+  const topNav=document.getElementById('top-nav');
+  const bnInner=document.getElementById('bottom-nav-inner');
+  const bnav=document.getElementById('bottom-nav');
+  topNav.innerHTML='';bnInner.innerHTML='';
+  items.forEach((item,i)=>{
+    const isFirst=i===0;
+    // top nav
+    const tb=document.createElement('button');
+    tb.className='nav-btn'+(isFirst?' active':'');
+    tb.id='tnav-'+item.id;
+    tb.innerHTML=item.label+(item.badge?`<span class="nav-badge" id="tnav-badge-${item.id}" style="display:none">0</span>`:'');
+    tb.onclick=()=>showPage(item.id,item.id);
+    topNav.appendChild(tb);
+    // bottom nav
+    const bb=document.createElement('button');
+    bb.className='bnav-btn'+(isFirst?' active':'');
+    bb.id='bnav-'+item.id;
+    bb.innerHTML=`<span class="bnav-icon">${item.icon}</span><span>${item.label}</span>`+(item.badge?`<span class="bnav-badge" id="bnav-badge-${item.id}" style="display:none">0</span>`:'');
+    bb.onclick=()=>showPage(item.id,item.id);
+    bnInner.appendChild(bb);
+  });
+  bnav.style.display='block';
+}
+
+function showPage(p,activateId){
+  document.querySelectorAll('.page').forEach(el=>el.classList.remove('active'));
+  const pg=document.getElementById('page-'+p);if(pg)pg.classList.add('active');
+  document.querySelectorAll('.nav-btn').forEach(el=>el.classList.remove('active'));
+  document.querySelectorAll('.bnav-btn').forEach(el=>el.classList.remove('active'));
+  const tn=document.getElementById('tnav-'+(activateId||p));if(tn)tn.classList.add('active');
+  const bn=document.getElementById('bnav-'+(activateId||p));if(bn)bn.classList.add('active');
+  if(p==='records')renderMyRecords();
+  if(p==='approve')renderApproveList();
+  if(p==='all')renderAllRecords();
+  if(p==='fx'){renderFxRates();calcFx();}
+  if(p==='settings')renderSettings();
+  window.scrollTo(0,0);
+}
+
+// ══════════════════════════════════════════════════════
+// LOGIN / LOGOUT
+// ══════════════════════════════════════════════════════
+function setLoginRole(role,el){
+  loginRole=role;
+  document.querySelectorAll('.login-tab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('login-err').textContent='';
+}
+
+function buildLoginSelects(){
+  // just keep text input; no dropdown needed – users type their ID
+}
+
+function doLogin(){
+  const id=(document.getElementById('login-id').value||'').trim().toUpperCase();
+  const pw=document.getElementById('login-pw').value;
+  const err=document.getElementById('login-err');
+  loadAll();
+  const user=USERS[id];
+  if(!user||user.pw!==pw){err.textContent='工号或密码错误，请重试';return;}
+  if(user.role!==loginRole){err.textContent='所选身份与账号不符，请切换登录类型';return;}
+  currentUser={id,...user};
+  document.getElementById('login-screen').style.display='none';
+  document.getElementById('main-app').style.display='block';
+  document.getElementById('bottom-nav').style.display='block';
+  document.getElementById('emp-name').value=user.name;
+  document.getElementById('emp-dept').value=user.dept||'';
+  document.getElementById('apply-date').value=new Date().toISOString().split('T')[0];
+  document.getElementById('os-start').value=new Date().toISOString().split('T')[0];
+  document.getElementById('user-avatar').textContent=user.name.slice(-2);
+  document.getElementById('user-name-display').textContent=user.name;
+  const rb=document.getElementById('role-tag-display');
+  rb.textContent=user.role==='approver'?'审批人':'员工';
+  rb.className='role-tag '+(user.role==='approver'?'role-approver':'role-staff');
+  buildNav(user.role);
+  if(user.role==='approver'){
+    document.getElementById('export-all-btn').style.display='flex';
+    document.getElementById('export-zip-btn').style.display='flex';
+    showPage('approve','approve');
+  } else {
+    addRow('daily');
+    showPage('new','new');
+  }
+  updateMetrics();updateStorageDisplay();updatePendingBadge();
+  syncAllowanceDisplay();
+}
+
+function logout(){
+  currentUser=null;currentAttachments=[];
+  document.getElementById('login-screen').style.display='block';
+  document.getElementById('main-app').style.display='none';
+  document.getElementById('bottom-nav').style.display='none';
+  document.getElementById('export-all-btn').style.display='none';
+  document.getElementById('export-zip-btn').style.display='none';
+  document.getElementById('login-id').value='';
+  document.getElementById('login-pw').value='';
+  document.getElementById('login-err').textContent='';
+  ['daily','travel','overseas','car'].forEach(t=>{const b=document.getElementById(t+'-body');if(b)b.innerHTML='';});
+}
+
+function syncAllowanceDisplay(){
+  const da=document.getElementById('domestic-rate-display');
+  const oa=document.getElementById('overseas-rate-display');
+  if(da)da.textContent=DOMESTIC_ALLOWANCE;
+  if(oa)oa.textContent=OVERSEAS_ALLOWANCE;
+}
+
+function updatePendingBadge(){
+  const n=records.filter(r=>r.status==='pending').length;
+  ['tnav-badge-approve','bnav-badge-approve'].forEach(id=>{
+    const el=document.getElementById(id);if(!el)return;
+    el.textContent=n;el.style.display=n>0?'flex':'none';
+  });
+  const tip=document.getElementById('pending-count-tip');
+  if(tip)tip.textContent=n?'共 '+n+' 条待处理':'已全部处理完毕';
+}
+
+function updateMetrics(){
+  if(!currentUser)return;
+  const mine=records.filter(r=>r.submittedBy===currentUser.id);
+  document.getElementById('m-count').textContent=mine.length;
+  document.getElementById('m-pending').textContent=mine.filter(r=>r.status==='pending').length;
+  document.getElementById('m-draft').textContent=mine.filter(r=>r.status==='draft').length;
+  const amt=mine.filter(r=>r.status==='approved').reduce((s,r)=>s+(r.rawAmount||0),0);
+  document.getElementById('m-approved-amt').textContent='¥'+amt.toLocaleString('zh-CN',{maximumFractionDigits:0});
+}
+
+// ══════════════════════════════════════════════════════
+// FORM
+// ══════════════════════════════════════════════════════
+function switchType(){
+  const t=document.getElementById('exp-type').value;
+  document.querySelectorAll('.exp-panel').forEach(p=>p.style.display='none');
+  document.getElementById('panel-'+t).style.display='block';
+}
+function makeCatOpts(cats){return cats.map(c=>`<option>${c}</option>`).join('');}
+function makeRcptOpts(){return RECEIPT_OPTS.map(r=>`<option>${r}</option>`).join('');}
+
+function makeDateCell(today, type){
+  // Returns the HTML for the date cell; hotel rows get two date pickers
+  return `<div class="date-cell-single"><input type="date" class="row-date" value="${today}"/></div>`;
+}
+
+function addRow(type){
+  const tbody=document.getElementById(type+'-body');if(!tbody)return;
+  const tr=document.createElement('tr');
+  const today=new Date().toISOString().split('T')[0];
+  if(type==='daily'||type==='travel'){
+    const cats=type==='daily'?DAILY_CATS:TRAVEL_CATS;
+    tr.innerHTML=`<td><select onchange="toggleHotelDates(this,'${type}');calcTotal('${type}')">${makeCatOpts(cats)}</select></td><td><input type="text" placeholder="说明..."/></td><td class="date-td">${makeDateCell(today,type)}</td><td><input type="number" placeholder="0.00" step="0.01" oninput="calcTotal('${type}')"/></td><td><select>${makeRcptOpts()}</select></td><td><button class="del-btn" onclick="delRow(this,'${type}')">×</button></td>`;
+  }else if(type==='overseas'){
+    tr.innerHTML=`<td><select onchange="toggleHotelDates(this,'overseas')">${makeCatOpts(OVERSEAS_CATS)}</select></td><td><input type="text" placeholder="说明..."/></td><td class="date-td">${makeDateCell(today,'overseas')}</td><td><input type="number" class="os-foreign" placeholder="0.00" step="0.01" oninput="calcOverseasTotal()"/></td><td><input type="number" class="os-cny" placeholder="0.00" step="0.01" oninput="calcOverseasTotal()" style="font-size:12px"/></td><td><select>${makeRcptOpts()}</select></td><td><button class="del-btn" onclick="delRow(this,'overseas')">×</button></td>`;
+  }else if(type==='car'){
+    tr.innerHTML=`<td><select>${makeCatOpts(CAR_CATS)}</select></td><td><input type="text" placeholder="说明..."/></td><td><input type="date" value="${today}"/></td><td><input type="number" placeholder="0.00" step="0.01" oninput="calcCarTotal()"/></td><td><button class="del-btn" onclick="delRow(this,'car')">×</button></td>`;
+  }
+  tbody.appendChild(tr);
+  // If the default category is 住宿, auto-expand hotel date fields
+  const sel = tr.querySelector('select');
+  if(sel && sel.value === '住宿') toggleHotelDates(sel, type);
+}
+
+// ── Hotel date toggle ───────────────────────────────────────────────────────
+function toggleHotelDates(sel, type){
+  const tr = sel.closest('tr');
+  const dateTd = tr.querySelector('.date-td');
+  if(!dateTd) return;
+  const today = new Date().toISOString().split('T')[0];
+  if(sel.value === '住宿'){
+    dateTd.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <div style="display:flex;align-items:center;gap:3px">
+          <span style="font-size:10px;color:#888;white-space:nowrap;min-width:24px">入住</span>
+          <input type="date" class="row-date hotel-checkin" value="${today}" style="font-size:11px;padding:4px 5px"
+            oninput="calcHotelNights(this,'${type}')"/>
+        </div>
+        <div style="display:flex;align-items:center;gap:3px">
+          <span style="font-size:10px;color:#888;white-space:nowrap;min-width:24px">退房</span>
+          <input type="date" class="hotel-checkout" value="${today}" style="font-size:11px;padding:4px 5px"
+            oninput="calcHotelNights(this,'${type}')"/>
+        </div>
+        <div class="hotel-nights-badge" style="font-size:10px;color:#1A5276;background:#EBF5FB;border-radius:4px;padding:1px 5px;text-align:center"></div>
+      </div>`;
+  } else {
+    dateTd.innerHTML = `<div class="date-cell-single"><input type="date" class="row-date" value="${today}"/></div>`;
+  }
+}
+
+function calcHotelNights(input, type){
+  const tr = input.closest('tr');
+  const checkin  = tr.querySelector('.hotel-checkin');
+  const checkout = tr.querySelector('.hotel-checkout');
+  const badge    = tr.querySelector('.hotel-nights-badge');
+  if(!checkin||!checkout||!badge) return;
+  const s = checkin.value, e = checkout.value;
+  if(s && e){
+    const diff = new Date(e) - new Date(s);
+    if(diff < 0){
+      badge.textContent = '⚠ 日期有误';
+      badge.style.background = '#FDEDEC'; badge.style.color = '#922B21';
+      return;
+    }
+    const nights = Math.round(diff / 86400000);
+    badge.style.background = '#EBF5FB'; badge.style.color = '#1A5276';
+    badge.textContent = nights > 0 ? nights + ' 晚' : '当天';
+  }
+  // Recalc totals
+  if(type === 'overseas') calcOverseasTotal();
+  else calcTotal(type);
+}
+function delRow(btn,type){btn.closest('tr').remove();if(type==='overseas')calcOverseasTotal();else if(type==='car')calcCarTotal();else calcTotal(type);}
+
+function calcTotal(type){
+  let sum=0;document.querySelectorAll(`#${type}-body input[type=number]`).forEach(i=>{sum+=parseFloat(i.value)||0;});
+  if(type==='travel'){
+    const sub=parseFloat((document.getElementById('travel-subsidy').textContent||'0').replace(/[¥,]/g,''))||0;
+    document.getElementById('travel-total').textContent='¥'+(sum+sub).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+  }else{document.getElementById(type+'-total').textContent='¥'+sum.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');}
+}
+
+function calcDays(){
+  const s=document.getElementById('travel-start').value,e=document.getElementById('travel-end').value;
+  if(s&&e){
+    const diff=new Date(e)-new Date(s);
+    if(diff<0){
+      document.getElementById('travel-end').style.borderColor='#E24B4A';
+      document.getElementById('travel-days').textContent='⚠ 返回日期不能早于出发日期';
+      document.getElementById('travel-days').style.color='#E24B4A';
+      document.getElementById('travel-subsidy').textContent='¥0';
+      calcTotal('travel');
+      return;
+    }
+    document.getElementById('travel-end').style.borderColor='';
+    document.getElementById('travel-days').style.color='#1a1a1a';
+    const d=Math.round(diff/86400000)+1;
+    document.getElementById('travel-days').textContent=d+' 天';
+    const sub=d*DOMESTIC_ALLOWANCE;
+    document.getElementById('travel-subsidy').textContent='¥'+sub.toFixed(2);
+    calcTotal('travel');
+  }
+}
+
+function calcOsDays(){
+  const s=document.getElementById('os-start').value,e=document.getElementById('os-end').value;
+  if(s&&e){
+    const diff=new Date(e)-new Date(s);
+    if(diff<0){
+      document.getElementById('os-end').style.borderColor='#E24B4A';
+      document.getElementById('os-days-display').textContent='⚠ 返回日期不能早于出发日期';
+      document.getElementById('os-days-display').style.color='#E24B4A';
+      document.getElementById('os-subsidy').textContent='¥0';
+      calcOverseasTotal();
+      return;
+    }
+    document.getElementById('os-end').style.borderColor='';
+    document.getElementById('os-days-display').style.color='#1a1a1a';
+    const d=Math.round(diff/86400000)+1;
+    document.getElementById('os-days-display').textContent=d+' 天';
+    const sub=d*OVERSEAS_ALLOWANCE;
+    document.getElementById('os-subsidy').textContent='¥'+sub.toFixed(2);
+    calcOverseasTotal();
+  }
+}
+
+function calcOverseasTotal(){
+  const rate=parseFloat(document.getElementById('os-rate').value)||1;
+  let sum=0;
+  document.querySelectorAll('#overseas-body tr').forEach(tr=>{
+    const fi=tr.querySelector('.os-foreign'),ci=tr.querySelector('.os-cny');
+    if(!ci)return;
+    if(fi&&parseFloat(fi.value)){
+      const cny=(parseFloat(fi.value)||0)*rate;
+      ci.value=cny.toFixed(2);
+      sum+=cny;
+    } else {
+      sum+=parseFloat(ci.value)||0;
+    }
+  });
+  const enabled=document.getElementById('os-subsidy-enabled');
+  const hint=document.getElementById('os-subsidy-off-hint');
+  const subText=document.getElementById('os-subsidy').textContent||'¥0';
+  const sub=parseFloat(subText.replace(/[¥,]/g,''))||0;
+  const includeSubsidy=!enabled||enabled.checked;
+  if(hint)hint.style.display=(!includeSubsidy&&sub>0)?'inline':'none';
+  document.getElementById('overseas-total').textContent='¥'+(sum+(includeSubsidy?sub:0)).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+  updateOsFx();
+}
+
+function updateOsFx(){
+  const curr=document.getElementById('os-currency').value;
+  const rate=parseFloat(document.getElementById('os-rate').value)||RATES[curr]||1;
+  const foreign=parseFloat(document.getElementById('os-foreign-total').value)||0;
+  document.getElementById('fx-result').textContent='¥'+(foreign*rate).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+  document.getElementById('fx-rate-tag').textContent='1 '+curr+' = '+rate.toFixed(4)+' CNY';
+  // Note: do NOT call calcOverseasTotal() here — it already calls updateOsFx(), avoid infinite recursion
+}
+
+function calcCarCost(){
+  const s=document.getElementById('car-start').value,e=document.getElementById('car-end').value;
+  const daily=parseFloat(document.getElementById('car-daily').value)||0;
+  const ins=parseFloat(document.getElementById('car-insurance').value)||0;
+  let days=1;
+  if(s&&e){
+    const diff=new Date(e)-new Date(s);
+    if(diff<0){document.getElementById('car-end').style.borderColor='#E24B4A';document.getElementById('car-subtotal').value='⚠ 日期有误';return;}
+    document.getElementById('car-end').style.borderColor='';
+    days=Math.round(diff/86400000)+1;
+  }
+  document.getElementById('car-subtotal').value='¥'+(days*daily+ins).toFixed(2);
+  calcCarTotal();
+}
+function calcCarTotal(){
+  const cs=parseFloat((document.getElementById('car-subtotal').value||'0').replace('¥',''))||0;
+  let misc=0;document.querySelectorAll('#car-body input[type=number]').forEach(i=>{misc+=parseFloat(i.value)||0;});
+  document.getElementById('car-total').textContent='¥'+(cs+misc).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+}
+
+function getCurrentAmount(){
+  const t=document.getElementById('exp-type').value;
+  const ids={daily:'daily-total',travel:'travel-total',overseas:'overseas-total',car:'car-total'};
+  return parseFloat((document.getElementById(ids[t]).textContent||'0').replace(/[¥,]/g,''))||0;
+}
+
+function captureFormState(){
+  const type=document.getElementById('exp-type').value;
+  const state={
+    type,
+    reason:document.getElementById('exp-reason').value,
+    date:document.getElementById('apply-date').value,
+    remark:document.getElementById('remark').value,
+    // travel
+    travelFrom:document.getElementById('travel-from')?.value||'',
+    travelTo:document.getElementById('travel-to')?.value||'',
+    travelStart:document.getElementById('travel-start')?.value||'',
+    travelEnd:document.getElementById('travel-end')?.value||'',
+    // overseas
+    osDest:document.getElementById('os-dest')?.value||'',
+    osCurrency:document.getElementById('os-currency')?.value||'USD',
+    osRate:document.getElementById('os-rate')?.value||'',
+    osForeignTotal:document.getElementById('os-foreign-total')?.value||'',
+    osStart:document.getElementById('os-start')?.value||'',
+    osEnd:document.getElementById('os-end')?.value||'',
+    osSubsidyEnabled:document.getElementById('os-subsidy-enabled')?.checked!==false,
+    // car
+    carCompany:document.getElementById('car-company')?.value||'',
+    carModel:document.getElementById('car-model')?.value||'',
+    carStart:document.getElementById('car-start')?.value||'',
+    carEnd:document.getElementById('car-end')?.value||'',
+    carDaily:document.getElementById('car-daily')?.value||'',
+    carInsurance:document.getElementById('car-insurance')?.value||'',
+    rows:{}
+  };
+  // Capture rows for all types
+  ['daily','travel','overseas','car'].forEach(t=>{
+    const tbody=document.getElementById(t+'-body');
+    if(!tbody)return;
+    state.rows[t]=[];
+    tbody.querySelectorAll('tr').forEach(tr=>{
+      const cells=tr.querySelectorAll('td');
+      if(!cells.length)return;
+      const row={};
+      // category (first select)
+      const catSel=cells[0]?.querySelector('select');
+      row.cat=catSel?catSel.value:'';
+      // description
+      row.desc=cells[1]?.querySelector('input')?.value||'';
+      // date cell — detect hotel (check-in/out) vs single date
+      const dateTd=tr.querySelector('.date-td')||cells[2];
+      const checkin=dateTd?.querySelector('.hotel-checkin');
+      if(checkin){
+        row.isHotel=true;
+        row.checkin=checkin.value||'';
+        row.checkout=dateTd.querySelector('.hotel-checkout')?.value||'';
+      } else {
+        row.isHotel=false;
+        row.date=dateTd?.querySelector('input[type=date]')?.value||dateTd?.querySelector('.row-date')?.value||'';
+      }
+      // amount / foreign amount
+      if(t==='overseas'){
+        row.foreign=cells[3]?.querySelector('.os-foreign')?.value||'';
+        const rcptIdx=5;
+        row.receipt=cells[rcptIdx]?.querySelector('select')?.value||'';
+      } else if(t==='car'){
+        row.amount=cells[3]?.querySelector('input[type=number]')?.value||'';
+      } else {
+        row.amount=cells[3]?.querySelector('input[type=number]')?.value||'';
+        row.receipt=cells[4]?.querySelector('select')?.value||'';
+      }
+      state.rows[t].push(row);
+    });
+  });
+  return state;
+}
+
+function restoreFormState(state){
+  if(!state)return;
+  clearForm();
+  // Set type first
+  const typeEl=document.getElementById('exp-type');
+  if(typeEl){typeEl.value=state.type||'daily';switchType();}
+  // Basic fields
+  const setVal=(id,v)=>{const el=document.getElementById(id);if(el&&v!==undefined)el.value=v;};
+  setVal('exp-reason',state.reason);
+  setVal('apply-date',state.date);
+  setVal('remark',state.remark);
+  setVal('travel-from',state.travelFrom);setVal('travel-to',state.travelTo);
+  setVal('travel-start',state.travelStart);setVal('travel-end',state.travelEnd);
+  setVal('os-dest',state.osDest);setVal('os-currency',state.osCurrency);
+  setVal('os-rate',state.osRate);setVal('os-foreign-total',state.osForeignTotal);
+  setVal('os-start',state.osStart);setVal('os-end',state.osEnd);
+  const subCb=document.getElementById('os-subsidy-enabled');
+  if(subCb)subCb.checked=state.osSubsidyEnabled!==false;
+  setVal('car-company',state.carCompany);setVal('car-model',state.carModel);
+  setVal('car-start',state.carStart);setVal('car-end',state.carEnd);
+  setVal('car-daily',state.carDaily);setVal('car-insurance',state.carInsurance);
+  // Recalc travel/overseas days
+  if(state.travelStart&&state.travelEnd)calcDays();
+  if(state.osStart&&state.osEnd)calcOsDays();
+  if(state.carStart||state.carEnd||state.carDaily)calcCarCost();
+  updateOsFx();
+  // Restore rows
+  const today=new Date().toISOString().split('T')[0];
+  ['daily','travel','overseas','car'].forEach(t=>{
+    const tbody=document.getElementById(t+'-body');
+    if(!tbody||!state.rows||!state.rows[t])return;
+    tbody.innerHTML=''; // clear default row added by clearForm
+    state.rows[t].forEach(row=>{
+      addRow(t); // adds a default row
+      const tr=tbody.querySelector('tr:last-child');
+      if(!tr)return;
+      // Set category
+      const catSel=tr.querySelector('td:first-child select');
+      if(catSel){
+        catSel.value=row.cat;
+        // trigger hotel toggle if needed
+        if(row.isHotel||row.cat==='住宿'){
+          toggleHotelDates(catSel,t);
+        }
+      }
+      // description
+      const descInput=tr.querySelectorAll('td')[1]?.querySelector('input');
+      if(descInput)descInput.value=row.desc||'';
+      // date
+      const dateTd=tr.querySelector('.date-td')||tr.querySelectorAll('td')[2];
+      if(row.isHotel){
+        const ci=dateTd?.querySelector('.hotel-checkin');
+        const co=dateTd?.querySelector('.hotel-checkout');
+        if(ci)ci.value=row.checkin||today;
+        if(co)co.value=row.checkout||today;
+        if(ci)calcHotelNights(ci,t);
+      } else {
+        const di=dateTd?.querySelector('input[type=date]')||dateTd?.querySelector('.row-date');
+        if(di)di.value=row.date||today;
+      }
+      // amount / receipt
+      if(t==='overseas'){
+        const fi=tr.querySelector('.os-foreign');if(fi)fi.value=row.foreign||'';
+        const rcptSel=tr.querySelectorAll('td')[5]?.querySelector('select');
+        if(rcptSel&&row.receipt)rcptSel.value=row.receipt;
+        calcOverseasTotal();
+      } else if(t==='car'){
+        const ai=tr.querySelectorAll('td')[3]?.querySelector('input[type=number]');
+        if(ai)ai.value=row.amount||'';
+        calcCarTotal();
+      } else {
+        const ai=tr.querySelectorAll('td')[3]?.querySelector('input[type=number]');
+        if(ai)ai.value=row.amount||'';
+        const rs=tr.querySelectorAll('td')[4]?.querySelector('select');
+        if(rs&&row.receipt)rs.value=row.receipt;
+        calcTotal(t);
+      }
+    });
+  });
+}
+
+function editDraft(id){
+  const r=records.find(rec=>rec.id===id);
+  if(!r||r.status!=='draft'){showToast('找不到草稿记录');return;}
+
+  // Reverse-map display type → form value
+  const TYPE_REVERSE={'日常费用':'daily','国内差旅':'travel','海外出差':'overseas','租车 / 汽油':'car','租车/汽油':'car'};
+
+  if(r.formState){
+    // ── Full restore: new-style draft ──
+    try{
+      restoreFormState(r.formState);
+      currentAttachments=r.attachments?[...r.attachments]:[];
+      renderAttachList();
+      records=records.filter(rec=>rec.id!==id);
+      saveRecords();updateMetrics();
+      showPage('new','new');
+      window.scrollTo(0,0);
+      showToast('草稿已加载，修改后重新保存或提交');
+    }catch(e){
+      showToast('加载草稿时出错，请重试');
+      console.error(e);
+    }
+  } else {
+    // ── Partial restore: legacy draft (no formState) ──
+    clearForm();
+    // Restore type
+    const typeVal=TYPE_REVERSE[r.type]||'daily';
+    const typeEl=document.getElementById('exp-type');
+    if(typeEl){typeEl.value=typeVal;switchType();}
+    // Restore basic fields
+    document.getElementById('exp-reason').value=(r.reason==='（草稿）'?'':r.reason)||'';
+    document.getElementById('apply-date').value=r.date||new Date().toISOString().split('T')[0];
+    document.getElementById('remark').value=r.remark||'';
+    currentAttachments=r.attachments?[...r.attachments]:[];
+    renderAttachList();
+    records=records.filter(rec=>rec.id!==id);
+    saveRecords();updateMetrics();
+    showPage('new','new');
+    window.scrollTo(0,0);
+    showToast('⚠ 旧草稿已恢复基本信息，请重新填写费用明细');
+  }
+}
+function submitForm(isDraft){
+  const reason=document.getElementById('exp-reason').value.trim();
+  if(!isDraft&&!reason){showToast('请填写费用事由');return;}
+  const typeVal=document.getElementById('exp-type').value,rawAmount=getCurrentAmount();
+  const formalCount=records.filter(r=>r.status!=='draft'&&r.submittedBy===currentUser.id).length+1;
+  const id=isDraft?('DRAFT-'+Date.now()):('EXP-'+currentUser.id+'-'+new Date().getFullYear()+'-'+String(formalCount).padStart(3,'0'));
+  records.unshift({
+    id,submittedBy:currentUser.id,name:currentUser.name,dept:currentUser.dept||'',
+    type:TYPE_MAP[typeVal],reason:reason||'（草稿）',rawAmount,
+    amount:'¥'+rawAmount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,','),
+    date:document.getElementById('apply-date').value,
+    submitTime:new Date().toLocaleString('zh-CN'),
+    status:isDraft?'draft':'pending',
+    remark:document.getElementById('remark').value,
+    attachments:[...currentAttachments],
+    approvalLog:[],
+    ...(isDraft?{formState:captureFormState()}:{})
+  });
+  saveRecords();updateMetrics();
+  showToast(isDraft?'草稿已保存':'已提交审批，编号 '+id);
+  if(!isDraft)clearForm();
+}
+function saveDraft(){submitForm(true);}
+function clearForm(){
+  document.getElementById('exp-reason').value='';document.getElementById('remark').value='';
+  ['travel-from','travel-to','os-dest','car-company','car-model'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  ['daily','travel','overseas','car'].forEach(t=>{const b=document.getElementById(t+'-body');if(b)b.innerHTML='';});
+  ['daily-total','travel-total','overseas-total','car-total'].forEach(id=>{const el=document.getElementById(id);if(el)el.textContent='¥0.00';});
+  document.getElementById('travel-days').textContent='—';document.getElementById('travel-subsidy').textContent='¥0';
+  document.getElementById('os-days-display').textContent='—';document.getElementById('os-subsidy').textContent='¥0';
+  document.getElementById('car-subtotal').value='';
+  document.getElementById('exp-type').value='daily';switchType();addRow('daily');
+  currentAttachments=[];renderAttachList();
+}
+
+// ══════════════════════════════════════════════════════
+// ATTACHMENTS
+// ══════════════════════════════════════════════════════
+function handleFileSelect(input){processFiles(Array.from(input.files));input.value='';}
+function handleDrop(e){e.preventDefault();document.getElementById('attach-zone').classList.remove('drag-over');processFiles(Array.from(e.dataTransfer.files));}
+
+function processFiles(files){
+  const allowed=['image/jpeg','image/png','image/jpg','application/pdf'];
+  files.forEach(file=>{
+    if(!allowed.includes(file.type)){showToast('不支持：'+file.name);return;}
+    if(file.size>MAX_FILE){showToast('超过3MB：'+file.name);return;}
+    if(currentAttachments.length>=10){showToast('最多10个附件');return;}
+    const reader=new FileReader();
+    reader.onload=e=>{
+      currentAttachments.push({id:Date.now()+'_'+Math.random().toString(36).slice(2),name:file.name,type:file.type,size:file.size,data:e.target.result});
+      renderAttachList();
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
+function renderAttachList(){
+  const list=document.getElementById('attach-list');list.innerHTML='';
+  currentAttachments.forEach((att,idx)=>{
+    const item=document.createElement('div');item.className='attach-item';
+    const isPdf=att.type==='application/pdf';
+    const sz=att.size>1048576?(att.size/1048576).toFixed(1)+'MB':(att.size/1024).toFixed(0)+'KB';
+    item.innerHTML=(isPdf?`<div class="attach-thumb-pdf" onclick="previewAtt(${idx})">PDF</div>`:`<img class="attach-thumb" src="${att.data}" onclick="previewAtt(${idx})"/>`)+
+      `<span class="attach-name" title="${att.name}">${att.name}</span><span class="attach-size">${sz}</span><button class="attach-preview-btn" onclick="previewAtt(${idx})">预览</button><button class="attach-del" onclick="removeAtt(${idx})">×</button>`;
+    list.appendChild(item);
+  });
+}
+function removeAtt(idx){currentAttachments.splice(idx,1);renderAttachList();}
+function previewAtt(idx,recId){
+  let att=recId!==undefined?(records.find(r=>r.id===recId)||{attachments:[]}).attachments[idx]:currentAttachments[idx];
+  if(!att)return;
+  previewFile=att;
+  document.getElementById('preview-filename').textContent=att.name;
+  const c=document.getElementById('preview-content');
+  c.innerHTML=att.type==='application/pdf'?`<iframe src="${att.data}" style="width:100%;height:100%;border:none;min-height:400px"></iframe>`:`<img src="${att.data}" alt="${att.name}"/>`;
+  document.getElementById('preview-overlay').style.display='flex';
+}
+function closePreview(){document.getElementById('preview-overlay').style.display='none';document.getElementById('preview-content').innerHTML='';previewFile=null;}
+function downloadPreview(){if(!previewFile)return;const a=document.createElement('a');a.href=previewFile.data;a.download=previewFile.name;a.click();}
+
+function attachBadge(rec){
+  if(!rec.attachments||!rec.attachments.length)return '<span style="color:#ccc;font-size:12px">无</span>';
+  return `<div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
+    <span class="attach-count-badge" onclick="previewAtt(0,'${rec.id}')">📎 ${rec.attachments.length}张</span>
+    <button onclick="downloadAttachmentsZip('${rec.id}')" title="打包下载全部附件"
+      style="font-size:11px;padding:2px 8px;border:1px solid #27AE60;border-radius:20px;background:#fff;color:#27AE60;cursor:pointer;font-family:inherit;white-space:nowrap">⬇ ZIP</button>
+  </div>`;
+}
+
+async function downloadAttachmentsZip(recId){
+  if(typeof JSZip==='undefined'){showToast('JSZip 未加载，请稍候重试');return;}
+  const rec=records.find(r=>r.id===recId);
+  if(!rec||!rec.attachments||!rec.attachments.length){showToast('该申请没有附件');return;}
+  showToast('正在打包附件…');
+  try{
+    const zip=new JSZip();
+    const folder=zip.folder(rec.id);
+    // Deduplicate filenames
+    const nameCount={};
+    rec.attachments.forEach(att=>{
+      const base=att.name||'附件';
+      nameCount[base]=(nameCount[base]||0)+1;
+      const count=nameCount[base];
+      const fname=count>1?base.replace(/(\.[^.]+)$/,`_${count}$1`):base;
+      // Strip base64 header and decode
+      const b64=att.data.split(',')[1]||att.data;
+      folder.file(fname,b64,{base64:true});
+    });
+    const blob=await zip.generateAsync({type:'blob'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;
+    a.download=`附件_${rec.id}_${rec.name||''}.zip`;
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),3000);
+    showToast(`已下载 ${rec.attachments.length} 个附件`);
+  }catch(e){
+    showToast('打包失败：'+e.message);
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// RECORDS
+// ══════════════════════════════════════════════════════
+function renderMyRecords(){
+  if(!currentUser)return;
+  const st=document.getElementById('filter-status').value;
+  const mine=records.filter(r=>r.submittedBy===currentUser.id&&(!st||r.status===st));
+  const tb=document.getElementById('my-records-body'),empty=document.getElementById('my-records-empty');
+  tb.innerHTML='';if(!mine.length){empty.style.display='block';return;}empty.style.display='none';
+  mine.forEach(r=>{
+    const bc={pending:'badge-pending',approved:'badge-approved',rejected:'badge-rejected',draft:'badge-draft'}[r.status]||'badge-draft';
+    const log=r.approvalLog&&r.approvalLog.length?r.approvalLog.filter(l=>l.action!=='resubmit').slice(-1)[0]:null;
+    const logHtml=log?`<div class="approval-log ${log.action}"><strong>${log.action==='approved'?'✓ 批准':'✗ 驳回'}</strong> · ${log.approverName} · ${log.time}${log.comment?'<br><span style="color:#888">'+log.comment+'</span>':''}</div>`:'<span style="font-size:12px;color:#ccc">—</span>';
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td style="font-size:11px;color:#999">${r.id}</td><td>${r.type}</td>
+      <td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.reason}">${r.reason}</td>
+      <td style="font-weight:700">${r.amount}</td><td style="color:#999">${r.date}</td>
+      <td>${attachBadge(r)}</td>
+      <td><span class="badge ${bc}">${STATUS_LABEL[r.status]}</span></td>
+      <td>${logHtml}</td>
+      <td style="white-space:nowrap">
+        ${r.status==='draft'?`<button class="btn-resubmit" style="background:#EBF5FB;color:#1A5276" onclick="editDraft('${r.id}')">编辑</button> <button class="btn-resubmit" onclick="submitDraft('${r.id}')">提交</button> `:''}
+        ${r.status==='rejected'?`<button class="btn-resubmit" onclick="resubmit('${r.id}')">重新提交</button> `:''}
+        ${r.status!=='pending'?`<button style="font-size:11px;padding:5px 9px;background:#fff;color:#aaa;border:1px solid #E8E8E8;border-radius:6px;cursor:pointer;font-family:inherit" onclick="deleteMyRecord('${r.id}')">删除</button>`:''}
+      </td>`;
+    tb.appendChild(tr);
+  });
+}
+function submitDraft(id){const r=records.find(r=>r.id===id);if(r){r.status='pending';r.submitTime=new Date().toLocaleString('zh-CN');saveRecords();updateMetrics();renderMyRecords();showToast('已提交审批');}}
+function resubmit(id){const r=records.find(r=>r.id===id);if(r){r.status='pending';r.submitTime=new Date().toLocaleString('zh-CN');if(!r.approvalLog)r.approvalLog=[];r.approvalLog.push({action:'resubmit',time:new Date().toLocaleString('zh-CN')});saveRecords();updateMetrics();renderMyRecords();showToast('已重新提交');}}
+function deleteMyRecord(id){if(!confirm('确认删除？附件也将一并删除。'))return;records=records.filter(r=>r.id!==id);saveRecords();updateMetrics();renderMyRecords();}
+
+function renderApproveList(){
+  const pending=records.filter(r=>r.status==='pending');
+  const tb=document.getElementById('approve-body'),empty=document.getElementById('approve-empty');
+  tb.innerHTML='';if(!pending.length){empty.style.display='block';return;}empty.style.display='none';
+  pending.forEach(r=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td style="font-size:11px;color:#999">${r.id}</td><td><strong>${r.name}</strong></td><td style="color:#999">${r.dept}</td><td>${r.type}</td>
+      <td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.reason}">${r.reason}</td>
+      <td style="font-weight:700">${r.amount}</td><td style="color:#999">${r.date}</td>
+      <td>${attachBadge(r)}</td>
+      <td style="color:#999;font-size:12px">${r.submitTime||'—'}</td>
+      <td style="white-space:nowrap">
+        <button class="btn-approve" onclick="openApproveModal('${r.id}','approved')">批准</button>
+        <button class="btn-reject" style="margin-left:5px" onclick="openApproveModal('${r.id}','rejected')">驳回</button>
+      </td>`;
+    tb.appendChild(tr);
+  });
+}
+
+function renderAllRecords(){
+  const st=document.getElementById('all-filter-status').value;
+  const data=records.filter(r=>r.status!=='draft'&&(!st||r.status===st));
+  const tb=document.getElementById('all-records-body'),empty=document.getElementById('all-records-empty');
+  tb.innerHTML='';if(!data.length){empty.style.display='block';return;}empty.style.display='none';
+  data.forEach(r=>{
+    const bc={pending:'badge-pending',approved:'badge-approved',rejected:'badge-rejected'}[r.status]||'badge-pending';
+    const log=r.approvalLog&&r.approvalLog.length?r.approvalLog.filter(l=>l.action!=='resubmit').slice(-1)[0]:null;
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td style="font-size:11px;color:#999">${r.id}</td><td>${r.name}</td><td style="color:#999">${r.dept}</td><td>${r.type}</td>
+      <td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.reason}">${r.reason}</td>
+      <td style="font-weight:700">${r.amount}</td><td style="color:#999">${r.date}</td>
+      <td>${attachBadge(r)}</td>
+      <td><span class="badge ${bc}">${STATUS_LABEL[r.status]}</span></td>
+      <td>${log?log.approverName:'—'}</td>
+      <td style="color:#999;font-size:12px">${log?log.time:'—'}</td>
+      <td style="color:#999;font-size:12px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${log&&log.comment?log.comment:''}">${log&&log.comment?log.comment:'—'}</td>`;
+    tb.appendChild(tr);
+  });
+}
+
+// ══════════════════════════════════════════════════════
+// APPROVAL
+// ══════════════════════════════════════════════════════
+function openApproveModal(id,action){
+  pendingApprovalAction={id,action};
+  const r=records.find(r=>r.id===id);
+  const isApprove=action==='approved';
+  document.getElementById('modal-title').textContent=isApprove?'确认批准此申请':'确认驳回此申请';
+  document.getElementById('modal-sub').textContent=r?r.name+' · '+r.type+' · '+r.amount:'';
+  document.getElementById('modal-comment').value='';
+  document.getElementById('modal-comment-label').textContent=isApprove?'审批意见（选填）':'驳回原因（必填）';
+  const btn=document.getElementById('modal-confirm-btn');
+  btn.textContent=isApprove?'确认批准':'确认驳回';
+  btn.style.cssText=isApprove?'background:#1E8449;color:#fff;border:none;border-radius:10px;padding:9px 20px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit':'background:#922B21;color:#fff;border:none;border-radius:10px;padding:9px 20px;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit';
+  document.getElementById('modal-overlay').style.display='flex';
+}
+function closeModal(){document.getElementById('modal-overlay').style.display='none';}
+function confirmApproval(){
+  const {id,action}=pendingApprovalAction;
+  const comment=document.getElementById('modal-comment').value.trim();
+  if(action==='rejected'&&!comment){showToast('请填写驳回原因');return;}
+  const r=records.find(r=>r.id===id);
+  if(r){
+    r.status=action;
+    if(!r.approvalLog)r.approvalLog=[];
+    r.approvalLog.push({action,approverName:currentUser.name,approverId:currentUser.id,time:new Date().toLocaleString('zh-CN'),comment});
+    saveRecords();updateMetrics();closeModal();renderApproveList();updatePendingBadge();
+    showToast(action==='approved'?'已批准 · '+r.amount:'已驳回');
+  }
+}
+
+// ══════════════════════════════════════════════════════
+// SETTINGS
+// ══════════════════════════════════════════════════════
+function renderSettings(){
+  document.getElementById('domestic-allowance').value=DOMESTIC_ALLOWANCE;
+  document.getElementById('overseas-allowance').value=OVERSEAS_ALLOWANCE;
+
+  const staffList=document.getElementById('staff-list');
+  const aprList=document.getElementById('approver-list');
+  staffList.innerHTML='';aprList.innerHTML='';
+
+  const colors=['#D6E4F0','#D5F5E3','#FDEDEC','#FEF9E7','#F4ECF7','#E8F8F5'];
+  Object.entries(USERS).forEach(([id,u],i)=>{
+    const bg=colors[i%colors.length];
+    const textColor=u.role==='approver'?'#7D6608':'#1A5276';
+    const div=document.createElement('div');div.className='user-row-card';
+    div.innerHTML=`<div class="user-row-avatar" style="background:${bg};color:${textColor}">${u.name.slice(-2)}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-size:13px;font-weight:600">${u.name} <span style="font-weight:400;color:#999;font-size:12px">${id}</span></div>
+        <div style="font-size:12px;color:#aaa">${u.dept||'—'}</div>
+      </div>
+      <span class="role-tag ${u.role==='approver'?'role-approver':'role-staff'}">${u.role==='approver'?'审批人':'员工'}</span>
+      ${id!==currentUser.id?`<button class="btn-danger-sm" onclick="deleteUser('${id}')">删除</button>`:'<span style="font-size:11px;color:#bbb">当前账号</span>'}`;
+    if(u.role==='staff')staffList.appendChild(div);
+    else aprList.appendChild(div);
+  });
+  if(!staffList.children.length)staffList.innerHTML='<div style="color:#bbb;font-size:13px;padding:8px">暂无员工账号</div>';
+}
+
+function addStaff(){addUser('staff');}
+function addApprover(){addUser('approver');}
+function addUser(role){
+  const prefix=role==='staff'?'new-staff':'new-apr';
+  const id=(document.getElementById(prefix+'-id').value||'').trim().toUpperCase();
+  const name=document.getElementById(prefix+'-name').value.trim();
+  const dept=document.getElementById(prefix+'-dept').value.trim();
+  const pw=document.getElementById(prefix+'-pw').value;
+  if(!id){showToast('请填写工号');return;}
+  if(!name){showToast('请填写姓名');return;}
+  if(pw.length<6){showToast('密码至少6位');return;}
+  if(USERS[id]){showToast('工号已存在：'+id);return;}
+  USERS[id]={name,dept,role,pw};
+  saveUsers();renderSettings();
+  document.getElementById(prefix+'-id').value='';
+  document.getElementById(prefix+'-name').value='';
+  document.getElementById(prefix+'-dept').value='';
+  document.getElementById(prefix+'-pw').value='';
+  showToast('已添加：'+name+' ('+id+')');
+}
+
+function deleteUser(id){
+  if(!confirm('确认删除账号 '+id+'？其历史申请记录不受影响。'))return;
+  delete USERS[id];saveUsers();renderSettings();showToast('已删除账号 '+id);
+}
+
+// ══════════════════════════════════════════════════════
+// FX
+// ══════════════════════════════════════════════════════
+function renderFxRates(){
+  const tb=document.getElementById('fx-rates-body');if(!tb)return;tb.innerHTML='';
+  Object.entries(RATES).forEach(([k,v])=>{
+    const tr=document.createElement('tr');
+    tr.innerHTML=`<td style="padding:7px 8px;border-bottom:1px solid #F0F0F0">${RATE_LABELS[k]}</td>
+      <td style="padding:7px 8px;border-bottom:1px solid #F0F0F0;text-align:right;font-weight:600">${v.toFixed(4)}</td>
+      <td style="padding:7px 8px;border-bottom:1px solid #F0F0F0;text-align:right">
+        <input type="number" step="0.0001" value="${v}" style="width:80px;border:1px solid #E0E0E0;border-radius:7px;padding:5px 6px;font-size:12px;background:#fff;outline:none;text-align:right;font-family:inherit" oninput="updateRate('${k}',this.value)"/>
+      </td>`;
+    tb.appendChild(tr);
+  });
+}
+function updateRate(cur,val){RATES[cur]=parseFloat(val)||RATES[cur];saveRates();}
+function resetRates(){RATES={...DEFAULT_RATES};saveRates();renderFxRates();showToast('已恢复默认汇率');}
+function setFxRate(){const c=document.getElementById('fx-from').value;document.getElementById('fx-rate-input').value=(RATES[c]||7.25).toFixed(4);calcFx();}
+function calcFx(){
+  const amt=parseFloat(document.getElementById('fx-input').value)||0;
+  const rate=parseFloat(document.getElementById('fx-rate-input').value)||1;
+  const curr=document.getElementById('fx-from').value;const cny=amt*rate;
+  document.getElementById('fx-output').value='¥'+cny.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+  document.getElementById('fx-reverse').textContent='¥'+cny.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',')+' = '+amt.toFixed(2)+' '+curr;
+}
+
+// ══════════════════════════════════════════════════════
+// EXPORT
+// ══════════════════════════════════════════════════════
+async function downloadAllZip(){
+  if(typeof JSZip==='undefined'){showToast('JSZip 未加载，请稍候重试');return;}
+  const data=records.filter(r=>r.attachments&&r.attachments.length);
+  if(!data.length){showToast('所有申请均无附件');return;}
+  const totalCount=data.reduce((s,r)=>s+r.attachments.length,0);
+  showToast(`正在打包 ${totalCount} 个附件…`);
+  try{
+    const zip=new JSZip();
+    data.forEach(rec=>{
+      const folder=zip.folder(`${rec.id}_${rec.name||''}`);
+      const nameCount={};
+      rec.attachments.forEach(att=>{
+        const base=att.name||'附件';
+        nameCount[base]=(nameCount[base]||0)+1;
+        const count=nameCount[base];
+        const fname=count>1?base.replace(/(\.[^.]+)$/,`_${count}$1`):base;
+        const b64=att.data.split(',')[1]||att.data;
+        folder.file(fname,b64,{base64:true});
+      });
+    });
+    const blob=await zip.generateAsync({type:'blob'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;
+    a.download=`全部报销附件_${new Date().toISOString().split('T')[0]}.zip`;
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),3000);
+    showToast(`已下载 ${totalCount} 个附件，共 ${data.length} 条申请`);
+  }catch(e){showToast('打包失败：'+e.message);}
+}
+
+function exportExcel(scope){
+  if(typeof XLSX==='undefined'){showToast('请稍候...');return;}
+  const today=new Date().toLocaleDateString('zh-CN');
+  const data=scope==='my'?records.filter(r=>r.submittedBy===currentUser.id):records.filter(r=>r.status!=='draft');
+  const rows=data.map(r=>{
+    const log=r.approvalLog&&r.approvalLog.length?r.approvalLog.filter(l=>l.action!=='resubmit').slice(-1)[0]:null;
+    const attNames=r.attachments&&r.attachments.length?r.attachments.map(a=>a.name).join('、'):'无';
+    return[r.id,r.name,r.dept||'',r.type,r.reason,r.date,r.rawAmount||0,STATUS_LABEL[r.status]||r.status,attNames,r.attachments?r.attachments.length:0,r.submitTime||'',log?log.approverName:'',log?log.time:'',log&&log.comment?log.comment:''];
+  });
+  const hdr=['申请编号','申请人','部门','费用类型','事由','日期','金额(元)','状态','附件文件名','附件数','提交时间','审批人','审批时间','审批意见'];
+  const ws=XLSX.utils.aoa_to_sheet([['公司报销管理系统 — '+(scope==='my'?currentUser.name+'的记录':'全部记录')+'（'+today+'）',...Array(13).fill('')],hdr,...rows]);
+  ws['!cols']=[{wch:22},{wch:8},{wch:8},{wch:10},{wch:20},{wch:12},{wch:12},{wch:8},{wch:28},{wch:6},{wch:16},{wch:8},{wch:16},{wch:28}];
+  ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:13}}];
+  const tS={font:{name:'Arial',sz:13,bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'2C3E50'}},alignment:{horizontal:'center',vertical:'center'}};
+  const hS={font:{name:'Arial',sz:10,bold:true,color:{rgb:'1F3864'}},fill:{fgColor:{rgb:'D6E4F0'}},alignment:{horizontal:'center'}};
+  const sB={已批准:'D5F5E3',待审批:'FEF9E7',已驳回:'FADBD8'};
+  if(ws['A1'])ws['A1'].s=tS;
+  hdr.forEach((_,ci)=>{const a=XLSX.utils.encode_cell({r:1,c:ci});if(ws[a])ws[a].s=hS;});
+  rows.forEach((row,ri)=>{
+    const bg=ri%2===0?'F8F9FA':'FFFFFF';
+    row.forEach((_,ci)=>{const a=XLSX.utils.encode_cell({r:ri+2,c:ci});if(!ws[a])return;const fill=ci===7&&sB[row[7]]?sB[row[7]]:bg;ws[a].s={font:{name:'Arial',sz:10},fill:{fgColor:{rgb:fill}}};});
+    const aa=XLSX.utils.encode_cell({r:ri+2,c:6});if(ws[aa])ws[aa].z='#,##0.00';
+  });
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'申请记录');
+  const fname=(scope==='my'?currentUser.name+'_报销_':'全部报销_')+new Date().toISOString().split('T')[0]+'.xlsx';
+  XLSX.writeFile(wb,fname,{bookType:'xlsx',type:'binary',cellStyles:true});
+  showToast('已导出：'+fname);
+}
+
+// ══════════════════════════════════════════════════════
+// TOAST
+// ══════════════════════════════════════════════════════
+function showToast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3000);}
+
+// ══════════════════════════════════════════════════════
+// INIT
+// ══════════════════════════════════════════════════════
+loadAll();
+</script>
+</body>
+</html>
