@@ -1621,24 +1621,31 @@ function deleteMyRecord(id){if(!confirm('确认删除？附件也将一并删除
 function editRejected(id){
   const r=records.find(rec=>rec.id===id);
   if(!r||r.status!=='rejected'){showToast('找不到该申请');return;}
-  const TYPE_REVERSE={'日常费用':'daily','国内差旅':'travel','海外出差':'overseas','租车/汽油':'car','租车 / 汽油':'car'};
-  clearForm();
-  // Restore type
-  const typeVal=TYPE_REVERSE[r.type]||'daily';
-  const typeEl=document.getElementById('exp-type');
-  if(typeEl){typeEl.value=typeVal;switchType();}
-  // Restore basic fields
-  document.getElementById('exp-reason').value=(r.reason==='（草稿）'?'':r.reason)||'';
-  document.getElementById('apply-date').value=r.date||new Date().toISOString().split('T')[0];
-  document.getElementById('remark').value=r.remark||'';
-  // Restore formState if exists
+
   if(r.formState){
-    try{ restoreFormState(r.formState); }catch(e){ console.warn(e); }
+    // 有完整快照 → 直接还原
+    try{
+      restoreFormState(r.formState);
+    }catch(e){
+      console.warn(e);
+      clearForm();
+    }
+  } else {
+    // 旧记录无快照 → 尽量还原基本信息
+    const TYPE_REVERSE={'日常费用':'daily','国内差旅':'travel','海外出差':'overseas','租车/汽油':'car','租车 / 汽油':'car'};
+    clearForm();
+    const typeVal=TYPE_REVERSE[r.type]||'daily';
+    const typeEl=document.getElementById('exp-type');
+    if(typeEl){typeEl.value=typeVal;switchType();}
+    document.getElementById('exp-reason').value=(r.reason==='（草稿）'?'':r.reason)||'';
+    document.getElementById('apply-date').value=r.date||new Date().toISOString().split('T')[0];
+    document.getElementById('remark').value=r.remark||'';
+    showToast('⚠ 旧申请仅恢复基本信息，请重新填写明细');
   }
+
   currentAttachments=r.attachments?[...r.attachments]:[];
   renderAttachList();
-  window._editingRejectedId=id;
-  _formLocked=true; // 🔒 防止 Firebase 实时监听重置表单
+  _formLocked=true;
   fbDelRec(id);
   records=records.filter(rec=>rec.id!==id);
   saveRecords();updateMetrics();
