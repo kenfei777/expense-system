@@ -1742,6 +1742,42 @@ async function showDetail(id){
 function _renderDetail(r){
   const bc={pending:'badge-pending',approved:'badge-approved',rejected:'badge-rejected',draft:'badge-draft'}[r.status]||'badge-draft';
   const log=r.approvalLog&&r.approvalLog.length?r.approvalLog.filter(l=>l.action!=='resubmit').slice(-1)[0]:null;
+  const fs=r.formState||{};
+
+  // Travel / Overseas info block
+  let travelHtml='';
+  if(r.type==='国内差旅'&&(fs.travelStart||fs.travelFrom)){
+    const days=fs.travelStart&&fs.travelEnd?Math.round((new Date(fs.travelEnd)-new Date(fs.travelStart))/86400000)+1:0;
+    const subsidy=days*(DOMESTIC_ALLOWANCE||200);
+    travelHtml=`<div style="margin:12px 0 0;background:#F8F8F8;border-radius:8px;padding:10px 14px;font-size:12px">
+      <div style="font-weight:600;color:#444;margin-bottom:6px">差旅信息</div>
+      <div style="display:flex;flex-wrap:wrap;gap:12px;color:#555">
+        ${fs.travelFrom?`<span>出发地：<strong>${fs.travelFrom}</strong></span>`:''}
+        ${fs.travelTo?`<span>目的地：<strong>${fs.travelTo}</strong></span>`:''}
+        ${fs.travelStart?`<span>出发：<strong>${fs.travelStart}</strong></span>`:''}
+        ${fs.travelEnd?`<span>返回：<strong>${fs.travelEnd}</strong></span>`:''}
+        ${days>0?`<span>天数：<strong>${days}天</strong></span>`:''}
+        ${days>0?`<span>补贴(¥${DOMESTIC_ALLOWANCE}/天)：<strong style="color:#1A5276">¥${subsidy.toFixed(2)}</strong></span>`:''}
+      </div>
+    </div>`;
+  }
+  if(r.type==='海外出差'&&(fs.osStart||fs.osDest)){
+    const days=fs.osStart&&fs.osEnd?Math.round((new Date(fs.osEnd)-new Date(fs.osStart))/86400000)+1:0;
+    const subsidy=days*(OVERSEAS_ALLOWANCE||300);
+    const subsidyEnabled=fs.osSubsidyEnabled!==false;
+    travelHtml=`<div style="margin:12px 0 0;background:#EBF5FB;border-radius:8px;padding:10px 14px;font-size:12px">
+      <div style="font-weight:600;color:#1A5276;margin-bottom:6px">海外出差信息</div>
+      <div style="display:flex;flex-wrap:wrap;gap:12px;color:#555">
+        ${fs.osDest?`<span>目的地：<strong>${fs.osDest}</strong></span>`:''}
+        ${fs.osCurrency?`<span>币种：<strong>${fs.osCurrency}</strong></span>`:''}
+        ${fs.osRate?`<span>汇率：<strong>${fs.osRate}</strong></span>`:''}
+        ${fs.osStart?`<span>出发：<strong>${fs.osStart}</strong></span>`:''}
+        ${fs.osEnd?`<span>返回：<strong>${fs.osEnd}</strong></span>`:''}
+        ${days>0?`<span>天数：<strong>${days}天</strong></span>`:''}
+        <span>补贴(¥${OVERSEAS_ALLOWANCE}/天)：<strong style="color:${subsidyEnabled?'#1A5276':'#aaa'}">${subsidyEnabled?'¥'+subsidy.toFixed(2):'已取消，下次另行申报'}</strong></span>
+      </div>
+    </div>`;
+  }
 
   // Build items table if available
   let itemsHtml='';
@@ -1805,7 +1841,7 @@ function _renderDetail(r){
           <div style="font-size:13px;font-weight:600;color:#1a1a1a;margin-top:2px">${v}</div>
         </div>`).join('')}
     </div>
-    ${itemsHtml}${attHtml}${remarkHtml}${logHtml}
+    ${travelHtml}${itemsHtml}${attHtml}${remarkHtml}${logHtml}
     <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
       ${r.status==='pending'?`
         <button class="btn-approve" onclick="closeDetail();openApproveModal('${r.id}','approved')">✓ 批准</button>
@@ -1966,12 +2002,39 @@ function exportExcel(scope){
   const rows=data.map(r=>{
     const log=r.approvalLog&&r.approvalLog.length?r.approvalLog.filter(l=>l.action!=='resubmit').slice(-1)[0]:null;
     const attNames=r.attachments&&r.attachments.length?r.attachments.map(a=>a.name).join('、'):'无';
-    return[r.id,r.name,r.dept||'',r.type,r.reason,r.date,r.rawAmount||0,STATUS_LABEL[r.status]||r.status,attNames,r.attachments?r.attachments.length:0,r.submitTime||'',log?log.approverName:'',log?log.time:'',log&&log.comment?log.comment:''];
+    const fs=r.formState||{};
+    // Travel/overseas info
+    let destination='',startDate='',endDate='',days=0,subsidyAmt=0,subsidyNote='';
+    if(r.type==='国内差旅'){
+      destination=(fs.travelFrom&&fs.travelTo)?fs.travelFrom+'→'+fs.travelTo:(fs.travelTo||fs.travelFrom||'');
+      startDate=fs.travelStart||''; endDate=fs.travelEnd||'';
+      if(startDate&&endDate) days=Math.round((new Date(endDate)-new Date(startDate))/86400000)+1;
+      subsidyAmt=days*(DOMESTIC_ALLOWANCE||200);
+      subsidyNote=days>0?days+'天×¥'+(DOMESTIC_ALLOWANCE||200)+'/天=¥'+subsidyAmt.toFixed(2):'';
+    } else if(r.type==='海外出差'){
+      destination=fs.osDest||'';
+      startDate=fs.osStart||''; endDate=fs.osEnd||'';
+      if(startDate&&endDate) days=Math.round((new Date(endDate)-new Date(startDate))/86400000)+1;
+      const enabled=fs.osSubsidyEnabled!==false;
+      subsidyAmt=enabled?days*(OVERSEAS_ALLOWANCE||300):0;
+      subsidyNote=enabled&&days>0?days+'天×¥'+(OVERSEAS_ALLOWANCE||300)+'/天=¥'+subsidyAmt.toFixed(2):'已取消，下次申报';
+    }
+    const expenseOnly=(r.rawAmount||0)-subsidyAmt;
+    return[r.id,r.name,r.dept||'',r.type,r.reason,r.date,
+      expenseOnly>0?Math.round(expenseOnly*100)/100:r.rawAmount||0,
+      subsidyAmt||'',subsidyNote,r.rawAmount||0,
+      STATUS_LABEL[r.status]||r.status,destination,startDate,endDate,days||'',
+      attNames,r.attachments?r.attachments.length:0,r.submitTime||'',
+      log?log.approverName:'',log?log.time:'',log&&log.comment?log.comment:''];
   });
-  const hdr=['申请编号','申请人','部门','费用类型','事由','日期','金额(元)','状态','附件文件名','附件数','提交时间','审批人','审批时间','审批意见'];
-  const ws=XLSX.utils.aoa_to_sheet([['公司报销管理系统 — '+(scope==='my'?currentUser.name+'的记录':'全部记录')+'（'+today+'）',...Array(13).fill('')],hdr,...rows]);
-  ws['!cols']=[{wch:22},{wch:8},{wch:8},{wch:10},{wch:20},{wch:12},{wch:12},{wch:8},{wch:28},{wch:6},{wch:16},{wch:8},{wch:16},{wch:28}];
-  ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:13}}];
+  const hdr=['申请编号','申请人','部门','费用类型','事由','日期',
+    '费用金额(元)','补贴金额(元)','补贴说明','报销合计(元)',
+    '状态','目的地','出发日期','返回日期','天数',
+    '附件文件名','附件数','提交时间','审批人','审批时间','审批意见'];
+  const colCount=hdr.length;
+  const ws=XLSX.utils.aoa_to_sheet([['公司报销管理系统 — '+(scope==='my'?currentUser.name+'的记录':'全部记录')+'（'+today+'）',...Array(colCount-1).fill('')],hdr,...rows]);
+  ws['!cols']=[{wch:22},{wch:8},{wch:8},{wch:10},{wch:20},{wch:12},{wch:12},{wch:12},{wch:24},{wch:12},{wch:8},{wch:14},{wch:12},{wch:12},{wch:6},{wch:28},{wch:6},{wch:16},{wch:8},{wch:16},{wch:28}];
+  ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:colCount-1}}];
   const tS={font:{name:'Arial',sz:13,bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'2C3E50'}},alignment:{horizontal:'center',vertical:'center'}};
   const hS={font:{name:'Arial',sz:10,bold:true,color:{rgb:'1F3864'}},fill:{fgColor:{rgb:'D6E4F0'}},alignment:{horizontal:'center'}};
   const sB={已批准:'D5F5E3',待审批:'FEF9E7',已驳回:'FADBD8'};
@@ -1979,8 +2042,8 @@ function exportExcel(scope){
   hdr.forEach((_,ci)=>{const a=XLSX.utils.encode_cell({r:1,c:ci});if(ws[a])ws[a].s=hS;});
   rows.forEach((row,ri)=>{
     const bg=ri%2===0?'F8F9FA':'FFFFFF';
-    row.forEach((_,ci)=>{const a=XLSX.utils.encode_cell({r:ri+2,c:ci});if(!ws[a])return;const fill=ci===7&&sB[row[7]]?sB[row[7]]:bg;ws[a].s={font:{name:'Arial',sz:10},fill:{fgColor:{rgb:fill}}};});
-    const aa=XLSX.utils.encode_cell({r:ri+2,c:6});if(ws[aa])ws[aa].z='#,##0.00';
+    row.forEach((_,ci)=>{const a=XLSX.utils.encode_cell({r:ri+2,c:ci});if(!ws[a])return;const fill=ci===10&&sB[row[10]]?sB[row[10]]:bg;ws[a].s={font:{name:'Arial',sz:10},fill:{fgColor:{rgb:fill}}};});
+    [6,7,9].forEach(ci=>{const a=XLSX.utils.encode_cell({r:ri+2,c:ci});if(ws[a]&&row[ci])ws[a].z='#,##0.00';});
   });
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'申请记录');
   const fname=(scope==='my'?currentUser.name+'_报销_':'全部报销_')+new Date().toISOString().split('T')[0]+'.xlsx';
