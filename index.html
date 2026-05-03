@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>公司报销管理系统</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 body{font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;background:#F2F4F7;color:#1a1a1a;font-size:14px;min-height:100vh}
@@ -86,6 +89,9 @@ body{font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;background:#F2
 .items-table td{padding:6px 8px;border-bottom:1px solid #F5F5F5;color:#1a1a1a;vertical-align:middle}
 .items-table td input,.items-table td select{border:1px solid #E2E2E2;border-radius:7px;padding:5px 7px;font-size:12px;background:#fff;color:#1a1a1a;outline:none;width:100%;font-family:inherit;-webkit-appearance:none}
 .del-btn{background:transparent;border:none;cursor:pointer;font-size:18px;line-height:1;padding:2px 5px;border-radius:5px;color:#E24B4A}
+.date-td{min-width:130px;padding-right:10px!important}
+.date-cell-single input{width:100%}
+.hotel-checkin,.hotel-checkout{width:100%}
 .add-row-btn{margin-top:8px;background:transparent;border:1.5px dashed #D5D5D5;border-radius:9px;padding:9px;font-size:13px;color:#aaa;cursor:pointer;width:100%;font-family:inherit}
 .add-row-btn:active{background:#F8F8F8}
 
@@ -110,11 +116,6 @@ body{font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;background:#F2
 .attach-del:active{color:#E24B4A}
 .attach-preview-btn{font-size:11px;color:#4A90E2;background:transparent;border:none;cursor:pointer;padding:2px 6px;flex-shrink:0;font-family:inherit;white-space:nowrap}
 .attach-count-badge{display:inline-flex;align-items:center;gap:3px;font-size:11px;padding:2px 8px;border-radius:20px;background:#EBF5FB;color:#1A5276;border:1px solid #BDD7EE;cursor:pointer;white-space:nowrap}
-.hotel-row-wrap{background:#F0F7FF;border-radius:8px;padding:6px 8px;margin:2px 0}
-.hotel-dates{display:flex;gap:6px;align-items:center;flex-wrap:wrap;margin-bottom:4px}
-.hotel-dates label{font-size:11px;color:#666;white-space:nowrap}
-.hotel-dates input[type=date]{border:1px solid #D0E8FF;border-radius:6px;padding:4px 6px;font-size:12px;background:#fff;color:#1a1a1a;outline:none;font-family:inherit;width:130px}
-.hotel-nights-badge{font-size:11px;color:#1A5276;background:#D6EAF8;padding:2px 8px;border-radius:20px;white-space:nowrap;font-weight:600}
 
 /* ── BUTTONS ── */
 .action-row{display:flex;gap:8px;justify-content:flex-end;margin-top:.875rem;flex-wrap:wrap}
@@ -254,6 +255,9 @@ body{font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;background:#F2
         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><polyline points="8 15 12 12 16 15"/></svg>
         导出 Excel
       </button>
+      <button class="btn" id="export-zip-btn" onclick="downloadAllZip()" style="display:none;font-size:12px;padding:5px 12px;border:1px solid #1A5276;color:#1A5276;background:#fff">
+        📦 导出全部附件 ZIP
+      </button>
     </div>
   </div>
 
@@ -358,23 +362,24 @@ body{font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;background:#F2
           <span style="font-size:16px;font-weight:700;color:#1a5276" id="fx-result">¥0.00</span>
           <span style="font-size:12px;color:#888;background:#fff;border:1px solid #BDD7EE;border-radius:20px;padding:2px 10px" id="fx-rate-tag">1 USD = 7.2500 CNY</span>
         </div>
-        <div style="font-size:13px;color:#666;padding:9px 12px;background:#F8F8F8;border-radius:10px;margin-top:10px;display:flex;gap:20px;flex-wrap:wrap">
+        <div style="font-size:13px;color:#666;padding:9px 12px;background:#F8F8F8;border-radius:10px;margin-top:10px;display:flex;gap:20px;flex-wrap:wrap;align-items:center">
           <span>天数：<strong id="os-days-display" style="color:#1a1a1a">—</strong></span>
-          <span>海外补贴(¥<span id="overseas-rate-display">500</span>/天)：<strong id="os-subsidy" style="color:#1a1a1a">¥0</strong></span>
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer;user-select:none">
+            <input type="checkbox" id="os-subsidy-enabled" checked onchange="calcOverseasTotal()" style="accentColor:#2C3E50;width:15px;height:15px;cursor:pointer"/>
+            <span>海外补贴(¥<span id="overseas-rate-display">500</span>/天)：<strong id="os-subsidy" style="color:#1a1a1a">¥0</strong></span>
+          </label>
+          <span id="os-subsidy-off-hint" style="font-size:11px;color:#E24B4A;display:none">补贴已取消，下次另行申报</span>
         </div>
       </div>
       <div class="card">
         <div class="card-header"><span class="card-title">海外费用明细</span></div>
         <div style="overflow-x:auto">
         <table class="items-table"><thead><tr>
-          <th style="width:13%">类别</th><th style="width:17%">说明</th><th style="width:19%">日期</th>
-          <th style="width:13%">外币</th><th style="width:13%">人民币</th><th style="width:16%">票据类型</th><th style="width:9%"></th>
+          <th style="width:14%">类别</th><th style="width:18%">说明</th><th style="width:16%">日期</th>
+          <th style="width:12%">外币</th><th style="width:12%">人民币</th><th style="width:18%">票据类型</th><th style="width:10%"></th>
         </tr></thead><tbody id="overseas-body"></tbody></table>
         </div>
-        <div style="display:flex;gap:8px;margin-top:8px">
-          <button class="add-row-btn" style="flex:1" onclick="addRow('overseas')">＋ 添加明细行</button>
-          <button class="add-row-btn" style="flex:1;border-color:#BDD7EE;color:#1A5276" onclick="addHotelRow()">🏨 添加住宿行</button>
-        </div>
+        <button class="add-row-btn" onclick="addRow('overseas')">＋ 添加明细行</button>
         <div class="total-row"><span class="total-label">人民币合计(含补贴)</span><span class="total-amount" id="overseas-total">¥0.00</span></div>
       </div>
     </div>
@@ -614,14 +619,6 @@ body{font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;background:#F2
       <div class="modal-handle"></div>
       <div class="modal-title" id="modal-title"></div>
       <div class="modal-sub" id="modal-sub"></div>
-      <div class="field" id="modal-amount-field" style="display:none;margin-bottom:12px">
-        <label style="font-size:12px;color:#666;font-weight:500;margin-bottom:4px;display:block">
-          报销金额（元）<span style="color:#E24B4A;font-size:11px;margin-left:4px">⚠ 系统记录为0，请手动填写正确金额</span>
-        </label>
-        <input type="number" id="modal-amount-input" step="0.01" min="0"
-          style="border:1.5px solid #E24B4A;border-radius:9px;padding:9px 11px;font-size:15px;font-weight:600;background:#fff;color:#1a1a1a;outline:none;width:100%;font-family:inherit"
-          placeholder="请输入正确的报销金额"/>
-      </div>
       <div class="field">
         <label id="modal-comment-label" style="font-size:12px;color:#666;font-weight:500;margin-bottom:4px;display:block">审批意见</label>
         <textarea id="modal-comment" style="border:1px solid #E0E0E0;border-radius:9px;padding:9px 11px;font-size:13px;background:#fff;color:#1a1a1a;resize:vertical;min-height:88px;width:100%;outline:none;font-family:inherit;line-height:1.5" placeholder="请填写审批意见（驳回时必填）..."></textarea>
@@ -630,6 +627,14 @@ body{font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;background:#F2
         <button class="btn btn-secondary" onclick="closeModal()">取消</button>
         <button class="btn" id="modal-confirm-btn" onclick="confirmApproval()">确认</button>
       </div>
+    </div>
+  </div>
+
+  <!-- ─── 申请明细 modal ─── -->
+  <div id="detail-overlay" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeDetail()">
+    <div class="modal-sheet" style="max-width:600px;width:100%;max-height:90vh;overflow-y:auto">
+      <div class="modal-handle"></div>
+      <div id="detail-content" style="padding-bottom:8px"></div>
     </div>
   </div>
 
@@ -649,9 +654,9 @@ body{font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;background:#F2
 // ══════════════════════════════════════════════════════
 const DEFAULT_RATES={USD:7.2500,EUR:7.8600,JPY:0.0481,GBP:9.1200,AUD:4.6800,HKD:0.9280,SGD:5.3600,KRW:0.0052};
 const RATE_LABELS={USD:'美元 USD',EUR:'欧元 EUR',JPY:'日元 JPY',GBP:'英镑 GBP',AUD:'澳元 AUD',HKD:'港币 HKD',SGD:'新加坡元 SGD',KRW:'韩元 KRW'};
-const DAILY_CATS=['餐饮','交通','住宿','办公用品','培训','会议','接待','其他'];
+const DAILY_CATS=['餐饮','出租车','住宿','办公用品','培训','会议','接待','其他'];
 const TRAVEL_CATS=['机票/高铁','出租车','住宿','餐饮','行李托运','其他'];
-const OVERSEAS_CATS=['机票','住宿','餐饮','交通','签证','通讯','接待','其他'];
+const OVERSEAS_CATS=['机票','住宿','餐饮','出租车','租车费','签证','通讯','汽油费','接待','其他'];
 const CAR_CATS=['汽油费','停车费','过路/过桥费','洗车费','其他'];
 const RECEIPT_OPTS=['纸质发票','电子发票','收据','信用卡单','无票'];
 const TYPE_MAP={daily:'日常费用',travel:'国内差旅',overseas:'海外出差',car:'租车/汽油'};
@@ -669,38 +674,252 @@ let previewFile=null;
 let DOMESTIC_ALLOWANCE=200;
 let OVERSEAS_ALLOWANCE=500;
 
-// ── PERSIST ────────────────────────────────────────────
+// ══════════════════════════════════════════════════════
+// FIREBASE CONFIG
+// ══════════════════════════════════════════════════════
+// ⚠️ 第一步：将下面的值替换为你的 Firebase 项目配置
+// Firebase 控制台 → 项目设置 → 你的应用 → Firebase SDK 配置
+const FIREBASE_CONFIG = {
+  apiKey:            "AIzaSyArtlUPMdNuyFXMeXOlPvzN62Bng3kQnH4",
+  authDomain:        "expense-system-cb3d6.firebaseapp.com",
+  projectId:         "expense-system-cb3d6",
+  storageBucket:     "expense-system-cb3d6.firebasestorage.app",
+  messagingSenderId: "547500495431",
+  appId:             "1:547500495431:web:a18a26b4b112bd94891762"
+};
+
+let db = null;
+let fbReady = false;
+let recordsUnsubscribe = null;
+
+function initFirebase(){
+  try{
+    if(!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
+    db=firebase.firestore();
+    db.enablePersistence().catch(()=>{});  // 离线缓存
+    fbReady=true; return true;
+  }catch(e){ console.warn('Firebase init failed:',e); fbReady=false; return false; }
+}
+
+// ── localStorage fallback ─────────────────────────────
 function lsGet(k,def=null){try{const v=localStorage.getItem(k);return v!==null?JSON.parse(v):def;}catch(e){return def;}}
 function lsSet(k,v){try{localStorage.setItem(k,JSON.stringify(v));return true;}catch(e){showToast('存储空间不足，请清理旧记录');return false;}}
 
-function loadAll(){
-  USERS=lsGet('expense:users',{
-    APR001:{name:'管理员',dept:'管理层',role:'approver',pw:'admin888'}
-  });
+// ── Attachment handling ───────────────────────────────
+// 附件 base64 存 Firebase 独立集合（expense_attachments），每设备可见
+function saveAttLocal(att){if(att?.id&&att?.data) localStorage.setItem('expense:att:'+att.id, att.data);}
+function loadAttLocal(att){if(att?.id&&!att?.data) att.data=localStorage.getItem('expense:att:'+att.id)||null; return att;}
+
+// 存附件到 Firebase（每个附件一个文档，分块存避免超 1MB）
+async function fbSaveAtts(atts){
+  if(!fbReady||!db||!atts||!atts.length) return;
+  for(const att of atts){
+    if(!att.data) continue;
+    saveAttLocal(att); // 同时存本地缓存
+    try{
+      // Firestore 文档限 1MB，base64 图片可能超限，分成最多4块存储
+      const data=att.data;
+      const chunkSize=900000; // ~900KB per chunk
+      const chunks=[];
+      for(let i=0;i<data.length;i+=chunkSize) chunks.push(data.slice(i,i+chunkSize));
+      await db.collection('expense_attachments').doc(fid(att.id)).set({
+        id:att.id, name:att.name, type:att.type, size:att.size,
+        chunks, totalChunks:chunks.length
+      });
+    }catch(e){ console.warn('fbSaveAtt failed:',att.name,e); }
+  }
+}
+
+// 从 Firebase 加载附件数据
+async function fbLoadAtts(atts){
+  if(!fbReady||!db||!atts||!atts.length) return atts;
+  const result=[];
+  for(const att of atts){
+    // Check local cache first
+    const cached=localStorage.getItem('expense:att:'+att.id);
+    if(cached){ result.push({...att,data:cached}); continue; }
+    try{
+      const snap=await db.collection('expense_attachments').doc(fid(att.id)).get();
+      if(snap.exists){
+        const d=snap.data();
+        const data=d.chunks?d.chunks.join(''):d.data||'';
+        localStorage.setItem('expense:att:'+att.id, data); // cache locally
+        result.push({...att,data});
+      } else { result.push(att); }
+    }catch(e){ console.warn('fbLoadAtt failed:',att.name,e); result.push(att); }
+  }
+  return result;
+}
+
+function stripRec(rec){
+  const r=JSON.parse(JSON.stringify(rec));
+  if(r.attachments) r.attachments=r.attachments.map(a=>({id:a.id||'',name:a.name||'',type:a.type||'',size:a.size||0}));
+  // formState 保留在记录里，同时存本地缓存
+  if(r.formState) lsSet('expense:fs:'+r.id, r.formState);
+  return r;
+}
+function hydrateRec(rec){
+  if(rec.attachments) rec.attachments=rec.attachments.map(loadAttLocal);
+  // 如果 Firebase 记录里没有 formState（旧版代码驳回导致），从独立集合补取
+  if(!rec.formState && rec._hasFormState) delete rec._hasFormState;
+  return rec;
+}
+
+// 把 formState 单独存一份到 expense_formstates 集合（防止被旧版代码删掉）
+async function fbSaveFormState(id, formState){
+  if(!fbReady||!db||!formState) return;
+  try{ await db.collection('expense_formstates').doc(fid(id)).set({id, formState, savedAt:new Date().toISOString()}); }
+  catch(e){ console.warn('fbSaveFormState:',e); }
+}
+async function fbLoadFormState(id){
+  if(!fbReady||!db) return null;
+  try{
+    const snap=await db.collection('expense_formstates').doc(fid(id)).get();
+    return snap.exists?snap.data().formState:null;
+  }catch(e){ return null; }
+}
+function fid(id){return (id||'').replace(/[.#$/\[\]]/g,'_');}
+
+// ── Firebase CRUD ─────────────────────────────────────
+async function fbSaveRec(rec){
+  if(!fbReady||!db) return;
+  if(rec.attachments&&rec.attachments.length) await fbSaveAtts(rec.attachments);
+  try{ await db.collection('expense_records').doc(fid(rec.id)).set(stripRec(rec)); }
+  catch(e){ console.warn('fbSaveRec:',e); showToast('云端同步失败，已保存到本地'); }
+}
+async function fbDelRec(id){
+  if(!fbReady||!db) return;
+  try{ await db.collection('expense_records').doc(fid(id)).delete(); }
+  catch(e){ console.warn('fbDelRec:',e); }
+}
+async function fbSetCfg(patch){
+  if(!fbReady||!db) return;
+  try{ await db.collection('expense').doc('config').set(patch,{merge:true}); }
+  catch(e){ console.warn('fbSetCfg:',e); }
+}
+
+// ── Real-time listener ────────────────────────────────
+let _formLocked = false; // true when user is editing, block form resets from snapshot
+
+function startLive(){
+  if(!fbReady||!db||recordsUnsubscribe) return;
+  recordsUnsubscribe=db.collection('expense_records').onSnapshot(snap=>{
+    const newRecords=snap.docs.map(d=>hydrateRec(d.data()));
+    newRecords.sort((a,b)=>(b.submitTime||'').localeCompare(a.submitTime||''));
+
+    // Detect status changes for current user's records
+    if(currentUser){
+      newRecords.forEach(nr=>{
+        if(nr.submittedBy!==currentUser.id) return;
+        const old=records.find(r=>r.id===nr.id);
+        if(old&&old.status!==nr.status){
+          const labels={approved:'✅ 已批准',rejected:'❌ 已驳回',pending:'⏳ 待审批',paid:'💰 已打款'};
+          showToast(`申请「${nr.reason}」${labels[nr.status]||nr.status}`);
+          ['tnav-records','bnav-records'].forEach(id=>{
+            const el=document.getElementById(id);
+            if(el&&!el.querySelector('.update-dot')){
+              const dot=document.createElement('span');
+              dot.className='update-dot';
+              dot.style.cssText='position:absolute;top:4px;right:4px;width:8px;height:8px;background:#E24B4A;border-radius:50%';
+              el.style.position='relative';
+              el.appendChild(dot);
+            }
+          });
+        }
+      });
+    }
+
+    records=newRecords;
+    lsSet('expense:records',records);
+    if(currentUser){
+      updateMetrics(); updatePendingBadge(); updateStorageDisplay();
+      const ap=document.querySelector('.page.active');
+      if(ap){
+        const pid=ap.id.replace('page-','');
+        if(pid==='records'){
+          document.querySelectorAll('.update-dot').forEach(d=>d.remove());
+          renderMyRecords();
+        }
+        else if(pid==='approve') renderApproveList();
+        else if(pid==='all') renderAllRecords();
+        // pid==='new' → 只有表单未锁定时才不处理，锁定时完全不动
+        // _formLocked=true 时任何页面都不重置表单
+      }
+    }
+  }, e=>console.warn('Snapshot error:',e));
+}
+
+// ── Load all data ─────────────────────────────────────
+async function loadAll(){
+  const ok=initFirebase();
+  if(ok){
+    const statusEl=document.getElementById('storage-status');
+    const dotEl=document.getElementById('storage-dot');
+    if(statusEl) statusEl.textContent='正在连接云端数据库…';
+    try{
+      const cfgSnap=await db.collection('expense').doc('config').get();
+      if(cfgSnap.exists){
+        const c=cfgSnap.data();
+        USERS=c.users||{APR001:{name:'管理员',dept:'管理层',role:'approver',pw:'admin888'}};
+        RATES={...DEFAULT_RATES,...(c.rates||{})};
+        DOMESTIC_ALLOWANCE=c.domestic_allowance||200;
+        OVERSEAS_ALLOWANCE=c.overseas_allowance||500;
+      } else {
+        USERS={APR001:{name:'管理员',dept:'管理层',role:'approver',pw:'admin888'}};
+        await fbSetCfg({users:USERS,rates:DEFAULT_RATES,domestic_allowance:200,overseas_allowance:500});
+      }
+      const recsSnap=await db.collection('expense_records').get();
+      records=recsSnap.docs.map(d=>hydrateRec(d.data()));
+      records.sort((a,b)=>(b.submitTime||'').localeCompare(a.submitTime||''));
+      startLive();
+      if(statusEl) statusEl.textContent='☁️ Firebase 云端同步已连接';
+      if(dotEl) dotEl.style.background='#2980B9';
+    }catch(e){
+      console.warn('Firebase load error, fallback:',e);
+      _fallbackLoad();
+    }
+  } else {
+    _fallbackLoad();
+  }
+}
+
+function _fallbackLoad(){
+  USERS=lsGet('expense:users',{APR001:{name:'管理员',dept:'管理层',role:'approver',pw:'admin888'}});
   records=lsGet('expense:records',[]);
   RATES={...DEFAULT_RATES,...lsGet('expense:rates',{})};
   DOMESTIC_ALLOWANCE=lsGet('expense:domestic_allowance',200);
   OVERSEAS_ALLOWANCE=lsGet('expense:overseas_allowance',500);
+  const statusEl=document.getElementById('storage-status');
+  const dotEl=document.getElementById('storage-dot');
+  if(statusEl) statusEl.textContent='⚠️ 离线模式（仅本地存储）';
+  if(dotEl) dotEl.style.background='#E67E22';
 }
-function saveUsers(){lsSet('expense:users',USERS);buildLoginSelects();}
-function saveRecords(){lsSet('expense:records',records);updateStorageDisplay();updatePendingBadge();}
-function saveRates(){lsSet('expense:rates',RATES);}
+
+function saveUsers(){lsSet('expense:users',USERS); fbSetCfg({users:USERS}); buildLoginSelects();}
+function saveRecords(){lsSet('expense:records',records); updateStorageDisplay(); updatePendingBadge();}
+function saveRates(){lsSet('expense:rates',RATES); fbSetCfg({rates:RATES});}
 function saveAllowance(){
   const d=parseFloat(document.getElementById('domestic-allowance').value)||200;
   const o=parseFloat(document.getElementById('overseas-allowance').value)||500;
-  DOMESTIC_ALLOWANCE=d;OVERSEAS_ALLOWANCE=o;
-  lsSet('expense:domestic_allowance',d);lsSet('expense:overseas_allowance',o);
+  DOMESTIC_ALLOWANCE=d; OVERSEAS_ALLOWANCE=o;
+  lsSet('expense:domestic_allowance',d); lsSet('expense:overseas_allowance',o);
+  fbSetCfg({domestic_allowance:d,overseas_allowance:o});
   document.querySelectorAll('.domestic-rate-display,.domestic-rate-display2,[id="domestic-rate-display"]').forEach(el=>el.textContent=d);
   document.querySelectorAll('[id="overseas-rate-display"]').forEach(el=>el.textContent=o);
   showToast('补助标准已保存');
 }
 
 function updateStorageDisplay(){
-  document.getElementById('storage-status').textContent='本地存储 · '+records.length+'条记录';
+  const el=document.getElementById('storage-status');
+  if(el){
+    if(fbReady) el.textContent='☁️ Firebase 云端同步 · '+records.length+'条记录';
+    else el.textContent='⚠️ 离线模式 · '+records.length+'条记录';
+  }
   try{
     let total=0;for(let k in localStorage)if(Object.prototype.hasOwnProperty.call(localStorage,k))total+=((localStorage[k]||'').length*2);
     const mb=(total/1024/1024).toFixed(1);
-    document.getElementById('storage-usage').textContent='已用 '+mb+'MB';
+    const el2=document.getElementById('storage-usage');
+    if(el2) el2.textContent='本地缓存 '+mb+'MB';
   }catch(e){}
 }
 
@@ -774,11 +993,25 @@ function buildLoginSelects(){
   // just keep text input; no dropdown needed – users type their ID
 }
 
-function doLogin(){
+async function doLogin(){
   const id=(document.getElementById('login-id').value||'').trim().toUpperCase();
   const pw=document.getElementById('login-pw').value;
   const err=document.getElementById('login-err');
-  loadAll();
+  const btn=document.querySelector('.btn-login');
+  if(!id){err.textContent='请输入工号';return;}
+  if(!pw){err.textContent='请输入密码';return;}
+
+  // Show loading state
+  err.textContent='';
+  if(btn){btn.textContent='登录中...';btn.disabled=true;}
+
+  // If Firebase not ready yet, wait for loadAll to complete
+  if(!fbReady){
+    await loadAll();
+  }
+
+  if(btn){btn.textContent='登 录';btn.disabled=false;}
+
   const user=USERS[id];
   if(!user||user.pw!==pw){err.textContent='工号或密码错误，请重试';return;}
   if(user.role!==loginRole){err.textContent='所选身份与账号不符，请切换登录类型';return;}
@@ -798,6 +1031,7 @@ function doLogin(){
   buildNav(user.role);
   if(user.role==='approver'){
     document.getElementById('export-all-btn').style.display='flex';
+    document.getElementById('export-zip-btn').style.display='flex';
     showPage('approve','approve');
   } else {
     addRow('daily');
@@ -813,6 +1047,7 @@ function logout(){
   document.getElementById('main-app').style.display='none';
   document.getElementById('bottom-nav').style.display='none';
   document.getElementById('export-all-btn').style.display='none';
+  document.getElementById('export-zip-btn').style.display='none';
   document.getElementById('login-id').value='';
   document.getElementById('login-pw').value='';
   document.getElementById('login-err').textContent='';
@@ -857,96 +1092,78 @@ function switchType(){
 function makeCatOpts(cats){return cats.map(c=>`<option>${c}</option>`).join('');}
 function makeRcptOpts(){return RECEIPT_OPTS.map(r=>`<option>${r}</option>`).join('');}
 
+function makeDateCell(today, type){
+  // Returns the HTML for the date cell; hotel rows get two date pickers
+  return `<div class="date-cell-single"><input type="date" class="row-date" value="${today}"/></div>`;
+}
+
 function addRow(type){
   const tbody=document.getElementById(type+'-body');if(!tbody)return;
   const tr=document.createElement('tr');
   const today=new Date().toISOString().split('T')[0];
   if(type==='daily'||type==='travel'){
     const cats=type==='daily'?DAILY_CATS:TRAVEL_CATS;
-    tr.innerHTML=`<td><select onchange="calcTotal('${type}')">${makeCatOpts(cats)}</select></td><td><input type="text" placeholder="说明..."/></td><td><input type="date" value="${today}"/></td><td><input type="number" placeholder="0.00" step="0.01" oninput="calcTotal('${type}')"/></td><td><select>${makeRcptOpts()}</select></td><td><button class="del-btn" onclick="delRow(this,'${type}')">×</button></td>`;
+    tr.innerHTML=`<td><select onchange="toggleHotelDates(this,'${type}');calcTotal('${type}')">${makeCatOpts(cats)}</select></td><td><input type="text" placeholder="说明..."/></td><td class="date-td">${makeDateCell(today,type)}</td><td><input type="number" placeholder="0.00" step="0.01" oninput="calcTotal('${type}')"/></td><td><select>${makeRcptOpts()}</select></td><td><button class="del-btn" onclick="delRow(this,'${type}')">×</button></td>`;
   }else if(type==='overseas'){
-    tr.innerHTML=`<td><select>${makeCatOpts(OVERSEAS_CATS)}</select></td><td><input type="text" placeholder="说明..."/></td><td><input type="date" value="${today}"/></td><td><input type="number" class="os-foreign" placeholder="0.00" step="0.01" oninput="calcOverseasTotal()"/></td><td><input type="text" class="os-cny" readonly style="background:#F7F8FA;font-size:12px"/></td><td><select>${makeRcptOpts()}</select></td><td><button class="del-btn" onclick="delRow(this,'overseas')">×</button></td>`;
+    tr.innerHTML=`<td><select onchange="toggleHotelDates(this,'overseas')">${makeCatOpts(OVERSEAS_CATS)}</select></td><td><input type="text" placeholder="说明..."/></td><td class="date-td">${makeDateCell(today,'overseas')}</td><td><input type="number" class="os-foreign" placeholder="0.00" step="0.01" oninput="calcOverseasTotal()"/></td><td><input type="number" class="os-cny" placeholder="0.00" step="0.01" oninput="calcOverseasTotal()" style="font-size:12px"/></td><td><select>${makeRcptOpts()}</select></td><td><button class="del-btn" onclick="delRow(this,'overseas')">×</button></td>`;
   }else if(type==='car'){
     tr.innerHTML=`<td><select>${makeCatOpts(CAR_CATS)}</select></td><td><input type="text" placeholder="说明..."/></td><td><input type="date" value="${today}"/></td><td><input type="number" placeholder="0.00" step="0.01" oninput="calcCarTotal()"/></td><td><button class="del-btn" onclick="delRow(this,'car')">×</button></td>`;
   }
   tbody.appendChild(tr);
+  // If the default category is 住宿, auto-expand hotel date fields
+  const sel = tr.querySelector('select');
+  if(sel && sel.value === '住宿') toggleHotelDates(sel, type);
 }
 
-function addHotelRow(){
-  const tbody=document.getElementById('overseas-body');if(!tbody)return;
-  const today=new Date().toISOString().split('T')[0];
-  const tr=document.createElement('tr');
-  tr.dataset.hotelRow='1';
-  tr.innerHTML=`
-    <td>住宿</td>
-    <td><input type="text" placeholder="酒店名称..."/></td>
-    <td>
-      <div class="hotel-row-wrap">
-        <div class="hotel-dates"><label>入住</label><input type="date" class="hotel-checkin" value="${today}" onchange="calcHotelNights(this)"/></div>
-        <div class="hotel-dates"><label>退房</label><input type="date" class="hotel-checkout" value="${today}" onchange="calcHotelNights(this)"/></div>
-        <div><span class="hotel-nights-badge" style="display:none">0 晚</span></div>
-      </div>
-    </td>
-    <td>
-      <div style="display:flex;flex-direction:column;gap:4px">
-        <input type="number" class="hotel-foreign-per-night" placeholder="每晚外币(选填)" step="0.01"
-          style="border:1px solid #E2E2E2;border-radius:7px;padding:5px 7px;font-size:12px;background:#fff;color:#1a1a1a;outline:none;width:100%;font-family:inherit"
-          oninput="calcHotelAmt(this)"/>
-        <div style="font-size:10px;color:#aaa;text-align:center">— 或 —</div>
-        <input type="number" class="hotel-cny-direct os-foreign" placeholder="人民币总额(直接填)" step="0.01"
-          style="border:1px solid #BDD7EE;border-radius:7px;padding:5px 7px;font-size:12px;background:#EBF5FB;color:#1A5276;outline:none;width:100%;font-family:inherit"
-          oninput="calcOverseasTotal()"/>
-      </div>
-    </td>
-    <td><input type="text" class="os-cny" readonly style="background:#F7F8FA;font-size:12px;border:1px solid #E2E2E2;border-radius:7px;padding:5px 7px;width:100%"/></td>
-    <td><select style="border:1px solid #E2E2E2;border-radius:7px;padding:5px 7px;font-size:12px;background:#fff;color:#1a1a1a;outline:none;width:100%;font-family:inherit">${makeRcptOpts()}</select></td>
-    <td><button class="del-btn" onclick="delRow(this,'overseas')">×</button></td>`;
-  tbody.appendChild(tr);
-}
-
-function toggleHotelMode(){}  // no longer needed
-
-function calcHotelNights(el){
-  const tr=el.closest('tr');
-  const ci=tr.querySelector('.hotel-checkin').value;
-  const co=tr.querySelector('.hotel-checkout').value;
-  const badge=tr.querySelector('.hotel-nights-badge');
-  if(!ci||!co){badge.style.display='none';return;}
-  const diff=new Date(co)-new Date(ci);
-  if(diff<=0){
-    badge.textContent='⚠ 日期有误';badge.style.display='';
-    badge.style.background='#FADBD8';badge.style.color='#922B21';
-    return;
+// ── Hotel date toggle ───────────────────────────────────────────────────────
+function toggleHotelDates(sel, type){
+  const tr = sel.closest('tr');
+  const dateTd = tr.querySelector('.date-td');
+  if(!dateTd) return;
+  const today = new Date().toISOString().split('T')[0];
+  if(sel.value === '住宿'){
+    dateTd.innerHTML = `
+      <div style="display:flex;flex-direction:column;gap:3px">
+        <div style="display:flex;align-items:center;gap:3px">
+          <span style="font-size:10px;color:#888;white-space:nowrap;min-width:24px">入住</span>
+          <input type="date" class="row-date hotel-checkin" value="${today}" style="font-size:11px;padding:4px 5px"
+            oninput="calcHotelNights(this,'${type}')"/>
+        </div>
+        <div style="display:flex;align-items:center;gap:3px">
+          <span style="font-size:10px;color:#888;white-space:nowrap;min-width:24px">退房</span>
+          <input type="date" class="hotel-checkout" value="${today}" style="font-size:11px;padding:4px 5px"
+            oninput="calcHotelNights(this,'${type}')"/>
+        </div>
+        <div class="hotel-nights-badge" style="font-size:10px;color:#1A5276;background:#EBF5FB;border-radius:4px;padding:1px 5px;text-align:center"></div>
+      </div>`;
+  } else {
+    dateTd.innerHTML = `<div class="date-cell-single"><input type="date" class="row-date" value="${today}"/></div>`;
   }
-  const nights=Math.round(diff/86400000);
-  badge.textContent=nights+' 晚';badge.style.display='';
-  badge.style.background='#D6EAF8';badge.style.color='#1A5276';
-  const fi=tr.querySelector('.hotel-foreign-per-night');
-  if(fi&&fi.value) calcHotelAmt(fi);
 }
 
-function calcHotelAmt(fi){
-  const tr=fi.closest('tr');
-  const ci=tr.querySelector('.hotel-checkin');
-  const co=tr.querySelector('.hotel-checkout');
-  if(ci&&co&&ci.value&&co.value){
-    const diff=new Date(co.value)-new Date(ci.value);
-    if(diff>0){
-      const nights=Math.round(diff/86400000);
-      const perNight=parseFloat(fi.value)||0;
-      // store computed foreign total in a hidden field for calcOverseasTotal to pick up
-      const rate=parseFloat(document.getElementById('os-rate').value)||1;
-      const cnyCell=tr.querySelector('.os-cny');
-      if(cnyCell) cnyCell.dataset.hotelCny=(nights*perNight*rate).toFixed(2);
+function calcHotelNights(input, type){
+  const tr = input.closest('tr');
+  const checkin  = tr.querySelector('.hotel-checkin');
+  const checkout = tr.querySelector('.hotel-checkout');
+  const badge    = tr.querySelector('.hotel-nights-badge');
+  if(!checkin||!checkout||!badge) return;
+  const s = checkin.value, e = checkout.value;
+  if(s && e){
+    const diff = new Date(e) - new Date(s);
+    if(diff < 0){
+      badge.textContent = '⚠ 日期有误';
+      badge.style.background = '#FDEDEC'; badge.style.color = '#922B21';
+      return;
     }
+    const nights = Math.round(diff / 86400000);
+    badge.style.background = '#EBF5FB'; badge.style.color = '#1A5276';
+    badge.textContent = nights > 0 ? nights + ' 晚' : '当天';
   }
-  calcOverseasTotal();
+  // Recalc totals
+  if(type === 'overseas') calcOverseasTotal();
+  else calcTotal(type);
 }
-
-function delRow(btn,type){
-  btn.closest('tr').remove();
-  if(type==='overseas')calcOverseasTotal();else if(type==='car')calcCarTotal();else calcTotal(type);
-}
+function delRow(btn,type){btn.closest('tr').remove();if(type==='overseas')calcOverseasTotal();else if(type==='car')calcCarTotal();else calcTotal(type);}
 
 function calcTotal(type){
   let sum=0;document.querySelectorAll(`#${type}-body input[type=number]`).forEach(i=>{sum+=parseFloat(i.value)||0;});
@@ -1004,52 +1221,23 @@ function calcOverseasTotal(){
   const rate=parseFloat(document.getElementById('os-rate').value)||1;
   let sum=0;
   document.querySelectorAll('#overseas-body tr').forEach(tr=>{
-    const ci=tr.querySelector('.os-cny');
+    const fi=tr.querySelector('.os-foreign'),ci=tr.querySelector('.os-cny');
     if(!ci)return;
-
-    if(tr.dataset.hotelRow==='1'){
-      // Priority: 1) direct CNY input, 2) per-night foreign × nights
-      const cnyDirect=tr.querySelector('.hotel-cny-direct');
-      const foreignPerNight=tr.querySelector('.hotel-foreign-per-night');
-      const checkin=tr.querySelector('.hotel-checkin');
-      const checkout=tr.querySelector('.hotel-checkout');
-
-      const cnyVal=parseFloat(cnyDirect&&cnyDirect.value)||0;
-      if(cnyVal>0){
-        // Direct CNY mode
-        ci.value='¥'+cnyVal.toFixed(2);
-        ci.style.background='#EBF5FB';
-        sum+=cnyVal;
-      } else if(foreignPerNight&&foreignPerNight.value&&checkin&&checkout&&checkin.value&&checkout.value){
-        // Foreign × nights mode
-        const diff=new Date(checkout.value)-new Date(checkin.value);
-        if(diff>0){
-          const nights=Math.round(diff/86400000);
-          const perNight=parseFloat(foreignPerNight.value)||0;
-          const cny=nights*perNight*rate;
-          ci.value='¥'+cny.toFixed(2);
-          ci.style.background='#F7F8FA';
-          sum+=cny;
-        } else {
-          ci.value='';
-        }
-      } else {
-        ci.value='';
-        ci.style.background='#F7F8FA';
-      }
-    } else {
-      // Normal overseas row
-      const fi=tr.querySelector('.os-foreign');
-      if(!fi)return;
-      const foreignAmt=parseFloat(fi.value)||0;
-      const cny=foreignAmt*rate;
-      ci.value=foreignAmt>0?'¥'+cny.toFixed(2):'';
+    if(fi&&parseFloat(fi.value)){
+      const cny=(parseFloat(fi.value)||0)*rate;
+      ci.value=cny.toFixed(2);
       sum+=cny;
+    } else {
+      sum+=parseFloat(ci.value)||0;
     }
   });
+  const enabled=document.getElementById('os-subsidy-enabled');
+  const hint=document.getElementById('os-subsidy-off-hint');
   const subText=document.getElementById('os-subsidy').textContent||'¥0';
   const sub=parseFloat(subText.replace(/[¥,]/g,''))||0;
-  document.getElementById('overseas-total').textContent='¥'+(sum+sub).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+  const includeSubsidy=!enabled||enabled.checked;
+  if(hint)hint.style.display=(!includeSubsidy&&sub>0)?'inline':'none';
+  document.getElementById('overseas-total').textContent='¥'+(sum+(includeSubsidy?sub:0)).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
   updateOsFx();
 }
 
@@ -1059,7 +1247,7 @@ function updateOsFx(){
   const foreign=parseFloat(document.getElementById('os-foreign-total').value)||0;
   document.getElementById('fx-result').textContent='¥'+(foreign*rate).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
   document.getElementById('fx-rate-tag').textContent='1 '+curr+' = '+rate.toFixed(4)+' CNY';
-  calcOverseasTotal();
+  // Note: do NOT call calcOverseasTotal() here — it already calls updateOsFx(), avoid infinite recursion
 }
 
 function calcCarCost(){
@@ -1088,6 +1276,210 @@ function getCurrentAmount(){
   return parseFloat((document.getElementById(ids[t]).textContent||'0').replace(/[¥,]/g,''))||0;
 }
 
+function captureFormState(){
+  const type=document.getElementById('exp-type').value;
+  const state={
+    type,
+    reason:document.getElementById('exp-reason').value,
+    date:document.getElementById('apply-date').value,
+    remark:document.getElementById('remark').value,
+    // travel
+    travelFrom:document.getElementById('travel-from')?.value||'',
+    travelTo:document.getElementById('travel-to')?.value||'',
+    travelStart:document.getElementById('travel-start')?.value||'',
+    travelEnd:document.getElementById('travel-end')?.value||'',
+    // overseas
+    osDest:document.getElementById('os-dest')?.value||'',
+    osCurrency:document.getElementById('os-currency')?.value||'USD',
+    osRate:document.getElementById('os-rate')?.value||'',
+    osForeignTotal:document.getElementById('os-foreign-total')?.value||'',
+    osStart:document.getElementById('os-start')?.value||'',
+    osEnd:document.getElementById('os-end')?.value||'',
+    osSubsidyEnabled:document.getElementById('os-subsidy-enabled')?.checked!==false,
+    // car
+    carCompany:document.getElementById('car-company')?.value||'',
+    carModel:document.getElementById('car-model')?.value||'',
+    carStart:document.getElementById('car-start')?.value||'',
+    carEnd:document.getElementById('car-end')?.value||'',
+    carDaily:document.getElementById('car-daily')?.value||'',
+    carInsurance:document.getElementById('car-insurance')?.value||'',
+    rows:{}
+  };
+  // Capture rows for all types
+  ['daily','travel','overseas','car'].forEach(t=>{
+    const tbody=document.getElementById(t+'-body');
+    if(!tbody)return;
+    state.rows[t]=[];
+    tbody.querySelectorAll('tr').forEach(tr=>{
+      const cells=tr.querySelectorAll('td');
+      if(!cells.length)return;
+      const row={};
+      // category (first select)
+      const catSel=cells[0]?.querySelector('select');
+      row.cat=catSel?catSel.value:'';
+      // description
+      row.desc=cells[1]?.querySelector('input')?.value||'';
+      // date cell — detect hotel (check-in/out) vs single date
+      const dateTd=tr.querySelector('.date-td')||cells[2];
+      const checkin=dateTd?.querySelector('.hotel-checkin');
+      if(checkin){
+        row.isHotel=true;
+        row.checkin=checkin.value||'';
+        row.checkout=dateTd.querySelector('.hotel-checkout')?.value||'';
+      } else {
+        row.isHotel=false;
+        row.date=dateTd?.querySelector('input[type=date]')?.value||dateTd?.querySelector('.row-date')?.value||'';
+      }
+      // amount / foreign amount
+      if(t==='overseas'){
+        row.foreign=cells[3]?.querySelector('.os-foreign')?.value||'';
+        row.cny=cells[4]?.querySelector('.os-cny')?.value||'';
+        const rcptIdx=5;
+        row.receipt=cells[rcptIdx]?.querySelector('select')?.value||'';
+      } else if(t==='car'){
+        row.amount=cells[3]?.querySelector('input[type=number]')?.value||'';
+      } else {
+        row.amount=cells[3]?.querySelector('input[type=number]')?.value||'';
+        row.receipt=cells[4]?.querySelector('select')?.value||'';
+      }
+      state.rows[t].push(row);
+    });
+  });
+  return state;
+}
+
+function restoreFormState(state){
+  if(!state)return;
+  clearForm();
+  // Set type first
+  const typeEl=document.getElementById('exp-type');
+  if(typeEl){typeEl.value=state.type||'daily';switchType();}
+  // Basic fields
+  const setVal=(id,v)=>{const el=document.getElementById(id);if(el&&v!==undefined)el.value=v;};
+  setVal('exp-reason',state.reason);
+  setVal('apply-date',state.date);
+  setVal('remark',state.remark);
+  setVal('travel-from',state.travelFrom);setVal('travel-to',state.travelTo);
+  setVal('travel-start',state.travelStart);setVal('travel-end',state.travelEnd);
+  setVal('os-dest',state.osDest);setVal('os-currency',state.osCurrency);
+  setVal('os-rate',state.osRate);setVal('os-foreign-total',state.osForeignTotal);
+  setVal('os-start',state.osStart);setVal('os-end',state.osEnd);
+  const subCb=document.getElementById('os-subsidy-enabled');
+  if(subCb)subCb.checked=state.osSubsidyEnabled!==false;
+  setVal('car-company',state.carCompany);setVal('car-model',state.carModel);
+  setVal('car-start',state.carStart);setVal('car-end',state.carEnd);
+  setVal('car-daily',state.carDaily);setVal('car-insurance',state.carInsurance);
+  // Recalc travel/overseas days
+  if(state.travelStart&&state.travelEnd)calcDays();
+  if(state.osStart&&state.osEnd)calcOsDays();
+  if(state.carStart||state.carEnd||state.carDaily)calcCarCost();
+  updateOsFx();
+  // Re-run calculations after a tick to ensure DOM is fully updated
+  setTimeout(()=>{
+    if(state.travelStart&&state.travelEnd)calcDays();
+    if(state.osStart&&state.osEnd)calcOsDays();
+    if(state.carStart||state.carEnd||state.carDaily)calcCarCost();
+    updateOsFx();
+    calcTotal('daily');calcTotal('travel');calcOverseasTotal();calcCarTotal();
+  },100);
+  // Restore rows
+  const today=new Date().toISOString().split('T')[0];
+  ['daily','travel','overseas','car'].forEach(t=>{
+    const tbody=document.getElementById(t+'-body');
+    if(!tbody||!state.rows||!state.rows[t])return;
+    tbody.innerHTML=''; // clear default row added by clearForm
+    state.rows[t].forEach(row=>{
+      addRow(t); // adds a default row
+      const tr=tbody.querySelector('tr:last-child');
+      if(!tr)return;
+      // Set category
+      const catSel=tr.querySelector('td:first-child select');
+      if(catSel){
+        catSel.value=row.cat;
+        // trigger hotel toggle if needed
+        if(row.isHotel||row.cat==='住宿'){
+          toggleHotelDates(catSel,t);
+        }
+      }
+      // description
+      const descInput=tr.querySelectorAll('td')[1]?.querySelector('input');
+      if(descInput)descInput.value=row.desc||'';
+      // date
+      const dateTd=tr.querySelector('.date-td')||tr.querySelectorAll('td')[2];
+      if(row.isHotel){
+        const ci=dateTd?.querySelector('.hotel-checkin');
+        const co=dateTd?.querySelector('.hotel-checkout');
+        if(ci)ci.value=row.checkin||today;
+        if(co)co.value=row.checkout||today;
+        if(ci)calcHotelNights(ci,t);
+      } else {
+        const di=dateTd?.querySelector('input[type=date]')||dateTd?.querySelector('.row-date');
+        if(di)di.value=row.date||today;
+      }
+      // amount / receipt
+      if(t==='overseas'){
+        const fi=tr.querySelector('.os-foreign');if(fi)fi.value=row.foreign||'';
+        const ci=tr.querySelector('.os-cny');if(ci)ci.value=row.cny||'';
+        const rcptSel=tr.querySelectorAll('td')[5]?.querySelector('select');
+        if(rcptSel&&row.receipt)rcptSel.value=row.receipt;
+        calcOverseasTotal();
+      } else if(t==='car'){
+        const ai=tr.querySelectorAll('td')[3]?.querySelector('input[type=number]');
+        if(ai)ai.value=row.amount||'';
+        calcCarTotal();
+      } else {
+        const ai=tr.querySelectorAll('td')[3]?.querySelector('input[type=number]');
+        if(ai)ai.value=row.amount||'';
+        const rs=tr.querySelectorAll('td')[4]?.querySelector('select');
+        if(rs&&row.receipt)rs.value=row.receipt;
+        calcTotal(t);
+      }
+    });
+  });
+}
+
+function editDraft(id){
+  const r=records.find(rec=>rec.id===id);
+  if(!r||r.status!=='draft'){showToast('找不到草稿记录');return;}
+
+  // Reverse-map display type → form value
+  const TYPE_REVERSE={'日常费用':'daily','国内差旅':'travel','海外出差':'overseas','租车 / 汽油':'car','租车/汽油':'car'};
+
+  if(r.formState){
+    try{
+      restoreFormState(r.formState);
+      currentAttachments=r.attachments?[...r.attachments]:[];
+      renderAttachList();
+      _formLocked=true;
+      fbDelRec(id);
+      records=records.filter(rec=>rec.id!==id);
+      saveRecords();updateMetrics();
+      showPage('new','new');
+      window.scrollTo(0,0);
+      showToast('草稿已加载，修改后重新保存或提交');
+    }catch(e){
+      showToast('加载草稿时出错，请重试');
+      console.error(e);
+    }
+  } else {
+    clearForm();
+    const typeVal=TYPE_REVERSE[r.type]||'daily';
+    const typeEl=document.getElementById('exp-type');
+    if(typeEl){typeEl.value=typeVal;switchType();}
+    document.getElementById('exp-reason').value=(r.reason==='（草稿）'?'':r.reason)||'';
+    document.getElementById('apply-date').value=r.date||new Date().toISOString().split('T')[0];
+    document.getElementById('remark').value=r.remark||'';
+    currentAttachments=r.attachments?[...r.attachments]:[];
+    renderAttachList();
+    _formLocked=true;
+    fbDelRec(id);
+    records=records.filter(rec=>rec.id!==id);
+    saveRecords();updateMetrics();
+    showPage('new','new');
+    window.scrollTo(0,0);
+    showToast('⚠ 旧草稿已恢复基本信息，请重新填写费用明细');
+  }
+}
 function submitForm(isDraft){
   const reason=document.getElementById('exp-reason').value.trim();
   if(!isDraft&&!reason){showToast('请填写费用事由');return;}
@@ -1103,11 +1495,16 @@ function submitForm(isDraft){
     status:isDraft?'draft':'pending',
     remark:document.getElementById('remark').value,
     attachments:[...currentAttachments],
-    approvalLog:[]
+    approvalLog:[],
+    formState: captureFormState()
   });
+  const newRec=records[0];
+  fbSaveRec(newRec);
+  fbSaveFormState(newRec.id, newRec.formState);
   saveRecords();updateMetrics();
   showToast(isDraft?'草稿已保存':'已提交审批，编号 '+id);
-  if(!isDraft)clearForm();
+  if(!isDraft){_formLocked=false;clearForm();}
+  else{_formLocked=false;}
 }
 function saveDraft(){submitForm(true);}
 function clearForm(){
@@ -1169,19 +1566,48 @@ function downloadPreview(){if(!previewFile)return;const a=document.createElement
 
 function attachBadge(rec){
   if(!rec.attachments||!rec.attachments.length)return '<span style="color:#ccc;font-size:12px">无</span>';
-  return `<span class="attach-count-badge" onclick="previewAtt(0,'${rec.id}')">📎 ${rec.attachments.length}张</span>`;
+  return `<div style="display:flex;align-items:center;gap:5px;flex-wrap:wrap">
+    <span class="attach-count-badge" onclick="previewAtt(0,'${rec.id}')">📎 ${rec.attachments.length}张</span>
+    <button onclick="downloadAttachmentsZip('${rec.id}')" title="打包下载全部附件"
+      style="font-size:11px;padding:2px 8px;border:1px solid #27AE60;border-radius:20px;background:#fff;color:#27AE60;cursor:pointer;font-family:inherit;white-space:nowrap">⬇ ZIP</button>
+  </div>`;
+}
+
+async function downloadAttachmentsZip(recId){
+  if(typeof JSZip==='undefined'){showToast('JSZip 未加载，请稍候重试');return;}
+  const rec=records.find(r=>r.id===recId);
+  if(!rec||!rec.attachments||!rec.attachments.length){showToast('该申请没有附件');return;}
+  showToast('正在打包附件…');
+  try{
+    const zip=new JSZip();
+    const folder=zip.folder(rec.id);
+    // Deduplicate filenames
+    const nameCount={};
+    rec.attachments.forEach(att=>{
+      const base=att.name||'附件';
+      nameCount[base]=(nameCount[base]||0)+1;
+      const count=nameCount[base];
+      const fname=count>1?base.replace(/(\.[^.]+)$/,`_${count}$1`):base;
+      // Strip base64 header and decode
+      const b64=att.data.split(',')[1]||att.data;
+      folder.file(fname,b64,{base64:true});
+    });
+    const blob=await zip.generateAsync({type:'blob'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;
+    a.download=`附件_${rec.id}_${rec.name||''}.zip`;
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),3000);
+    showToast(`已下载 ${rec.attachments.length} 个附件`);
+  }catch(e){
+    showToast('打包失败：'+e.message);
+  }
 }
 
 // ══════════════════════════════════════════════════════
 // RECORDS
 // ══════════════════════════════════════════════════════
-function safeAmount(r){
-  // Guard: if amount string is missing or "¥0.00" but rawAmount exists, rebuild it
-  if(r.amount&&r.amount!=='¥0.00')return r.amount;
-  if(r.rawAmount&&r.rawAmount>0)return '¥'+r.rawAmount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
-  return r.amount||'¥0.00';
-}
-
 function renderMyRecords(){
   if(!currentUser)return;
   const st=document.getElementById('filter-status').value;
@@ -1195,21 +1621,66 @@ function renderMyRecords(){
     const tr=document.createElement('tr');
     tr.innerHTML=`<td style="font-size:11px;color:#999">${r.id}</td><td>${r.type}</td>
       <td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.reason}">${r.reason}</td>
-      <td style="font-weight:700">${safeAmount(r)}</td><td style="color:#999">${r.date}</td>
+      <td style="font-weight:700">${r.amount}</td><td style="color:#999">${r.date}</td>
       <td>${attachBadge(r)}</td>
       <td><span class="badge ${bc}">${STATUS_LABEL[r.status]}</span></td>
       <td>${logHtml}</td>
       <td style="white-space:nowrap">
-        ${r.status==='draft'?`<button class="btn-resubmit" onclick="submitDraft('${r.id}')">提交</button> `:''}
-        ${r.status==='rejected'?`<button class="btn-resubmit" onclick="resubmit('${r.id}')">重新提交</button> `:''}
+        ${r.status==='draft'?`<button class="btn-resubmit" style="background:#EBF5FB;color:#1A5276" onclick="editDraft('${r.id}')">编辑</button> <button class="btn-resubmit" onclick="submitDraft('${r.id}')">提交</button> `:''}
+        ${r.status==='rejected'?`<button class="btn-resubmit" style="background:#EBF5FB;color:#1A5276" onclick="editRejected('${r.id}')">修改</button> <button class="btn-resubmit" onclick="resubmit('${r.id}')">直接重新提交</button> `:''}
         ${r.status!=='pending'?`<button style="font-size:11px;padding:5px 9px;background:#fff;color:#aaa;border:1px solid #E8E8E8;border-radius:6px;cursor:pointer;font-family:inherit" onclick="deleteMyRecord('${r.id}')">删除</button>`:''}
       </td>`;
     tb.appendChild(tr);
   });
 }
-function submitDraft(id){const r=records.find(r=>r.id===id);if(r){r.status='pending';r.submitTime=new Date().toLocaleString('zh-CN');saveRecords();updateMetrics();renderMyRecords();showToast('已提交审批');}}
-function resubmit(id){const r=records.find(r=>r.id===id);if(r){r.status='pending';r.submitTime=new Date().toLocaleString('zh-CN');if(!r.approvalLog)r.approvalLog=[];r.approvalLog.push({action:'resubmit',time:new Date().toLocaleString('zh-CN')});saveRecords();updateMetrics();renderMyRecords();showToast('已重新提交');}}
-function deleteMyRecord(id){if(!confirm('确认删除？附件也将一并删除。'))return;records=records.filter(r=>r.id!==id);saveRecords();updateMetrics();renderMyRecords();}
+function submitDraft(id){const r=records.find(r=>r.id===id);if(r){r.status='pending';r.submitTime=new Date().toLocaleString('zh-CN');fbSaveRec(r);saveRecords();updateMetrics();renderMyRecords();showToast('已提交审批');}}
+function resubmit(id){const r=records.find(r=>r.id===id);if(r){r.status='pending';r.submitTime=new Date().toLocaleString('zh-CN');if(!r.approvalLog)r.approvalLog=[];r.approvalLog.push({action:'resubmit',time:new Date().toLocaleString('zh-CN')});fbSaveRec(r);saveRecords();updateMetrics();renderMyRecords();showToast('已重新提交');}}
+function deleteMyRecord(id){if(!confirm('确认删除？附件也将一并删除。'))return;fbDelRec(id);records=records.filter(r=>r.id!==id);saveRecords();updateMetrics();renderMyRecords();}
+
+async function editRejected(id){
+  const r=records.find(rec=>rec.id===id);
+  if(!r||r.status!=='rejected'){showToast('找不到该申请');return;}
+
+  if(r.formState){
+    showToast(`恢复中: formState有效, travel行数=${(r.formState.rows?.travel||[]).length}`);
+    try{ restoreFormState(r.formState); }catch(e){ console.warn(e); clearForm(); }
+    // Check if overseas CNY values were lost (old records before the fix)
+    if(r.type==='海外出差'&&r.rawAmount>0){
+      const restoredTotal=parseFloat((document.getElementById('overseas-total')?.textContent||'0').replace(/[¥,]/g,''))||0;
+      if(restoredTotal<r.rawAmount*0.5){
+        showToast('⚠ 请核查海外费用明细，人民币金额可能需要重新填写');
+      }
+    }
+  } else {
+    showToast('formState不在记录里，从备份集合加载...');
+    const fs = await fbLoadFormState(id);
+    if(fs){
+      showToast(`备份找到, travel行数=${(fs.rows?.travel||[]).length}`);
+      try{ restoreFormState(fs); }catch(e){ console.warn(e); clearForm(); }
+    } else {
+      // 完全找不到快照 → 尽量还原基本信息
+      const TYPE_REVERSE={'日常费用':'daily','国内差旅':'travel','海外出差':'overseas','租车/汽油':'car','租车 / 汽油':'car'};
+      clearForm();
+      const typeVal=TYPE_REVERSE[r.type]||'daily';
+      const typeEl=document.getElementById('exp-type');
+      if(typeEl){typeEl.value=typeVal;switchType();}
+      document.getElementById('exp-reason').value=(r.reason==='（草稿）'?'':r.reason)||'';
+      document.getElementById('apply-date').value=r.date||new Date().toISOString().split('T')[0];
+      document.getElementById('remark').value=r.remark||'';
+      showToast('⚠ 找不到表单快照，请重新填写明细');
+    }
+  }
+
+  currentAttachments=r.attachments?[...r.attachments]:[];
+  renderAttachList();
+  _formLocked=true;
+  fbDelRec(id);
+  records=records.filter(rec=>rec.id!==id);
+  saveRecords();updateMetrics();
+  showPage('new','new');
+  window.scrollTo(0,0);
+  showToast('已加载被驳回的申请，修改后重新提交');
+}
 
 function renderApproveList(){
   const pending=records.filter(r=>r.status==='pending');
@@ -1217,15 +1688,19 @@ function renderApproveList(){
   tb.innerHTML='';if(!pending.length){empty.style.display='block';return;}empty.style.display='none';
   pending.forEach(r=>{
     const tr=document.createElement('tr');
+    tr.style.cursor='pointer';
+    tr.title='点击查看明细';
     tr.innerHTML=`<td style="font-size:11px;color:#999">${r.id}</td><td><strong>${r.name}</strong></td><td style="color:#999">${r.dept}</td><td>${r.type}</td>
       <td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.reason}">${r.reason}</td>
-      <td style="font-weight:700">${safeAmount(r)}</td><td style="color:#999">${r.date}</td>
+      <td style="font-weight:700">${r.amount}</td><td style="color:#999">${r.date}</td>
       <td>${attachBadge(r)}</td>
       <td style="color:#999;font-size:12px">${r.submitTime||'—'}</td>
       <td style="white-space:nowrap">
-        <button class="btn-approve" onclick="openApproveModal('${r.id}','approved')">批准</button>
-        <button class="btn-reject" style="margin-left:5px" onclick="openApproveModal('${r.id}','rejected')">驳回</button>
+        <button class="btn-resubmit" style="background:#EBF5FB;color:#1A5276;margin-right:4px" onclick="event.stopPropagation();showDetail('${r.id}')">查看明细</button>
+        <button class="btn-approve" onclick="event.stopPropagation();openApproveModal('${r.id}','approved')">批准</button>
+        <button class="btn-reject" style="margin-left:5px" onclick="event.stopPropagation();openApproveModal('${r.id}','rejected')">驳回</button>
       </td>`;
+    tr.onclick=()=>showDetail(r.id);
     tb.appendChild(tr);
   });
 }
@@ -1238,60 +1713,160 @@ function renderAllRecords(){
   data.forEach(r=>{
     const bc={pending:'badge-pending',approved:'badge-approved',rejected:'badge-rejected'}[r.status]||'badge-pending';
     const log=r.approvalLog&&r.approvalLog.length?r.approvalLog.filter(l=>l.action!=='resubmit').slice(-1)[0]:null;
-    const raw=r.rawAmount||(parseFloat((r.amount||'0').replace(/[¥,]/g,''))||0);
-    const amtCell=raw===0
-      ? `<td><span style="color:#E24B4A;font-size:12px">¥0 </span><button onclick="fixAmount('${r.id}')" style="font-size:11px;padding:2px 7px;background:#FEF9E7;color:#7D6608;border:1px solid #F9E79F;border-radius:5px;cursor:pointer;font-family:inherit">修正</button></td>`
-      : `<td style="font-weight:700">${safeAmount(r)}</td>`;
     const tr=document.createElement('tr');
+    tr.style.cursor='pointer';
     tr.innerHTML=`<td style="font-size:11px;color:#999">${r.id}</td><td>${r.name}</td><td style="color:#999">${r.dept}</td><td>${r.type}</td>
       <td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.reason}">${r.reason}</td>
-      ${amtCell}<td style="color:#999">${r.date}</td>
+      <td style="font-weight:700">${r.amount}</td><td style="color:#999">${r.date}</td>
       <td>${attachBadge(r)}</td>
       <td><span class="badge ${bc}">${STATUS_LABEL[r.status]}</span></td>
       <td>${log?log.approverName:'—'}</td>
       <td style="color:#999;font-size:12px">${log?log.time:'—'}</td>
-      <td style="color:#999;font-size:12px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${log&&log.comment?log.comment:''}">${log&&log.comment?log.comment:'—'}</td>`;
+      <td style="color:#999;font-size:12px;max-width:120px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${log&&log.comment?log.comment:''}">${log&&log.comment?log.comment:'—'}</td>
+      <td><button class="btn-resubmit" style="background:#EBF5FB;color:#1A5276" onclick="event.stopPropagation();showDetail('${r.id}')">查看</button></td>`;
+    tr.onclick=()=>showDetail(r.id);
     tb.appendChild(tr);
   });
-}
-
-function fixAmount(id){
-  const r=records.find(r=>r.id===id);if(!r)return;
-  const input=prompt('请输入「'+r.reason+'」的正确报销金额（元）：','');
-  if(input===null)return;
-  const val=parseFloat(input);
-  if(isNaN(val)||val<0){showToast('金额无效，请输入数字');return;}
-  r.rawAmount=val;
-  r.amount='¥'+val.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
-  saveRecords();renderAllRecords();
-  showToast('已修正为 ¥'+val.toFixed(2));
 }
 
 // ══════════════════════════════════════════════════════
 // APPROVAL
 // ══════════════════════════════════════════════════════
+function closeDetail(){document.getElementById('detail-overlay').style.display='none';}
+async function showDetail(id){
+  const r=records.find(r=>r.id===id);if(!r)return;
+  // Show modal immediately with loading state
+  document.getElementById('detail-content').innerHTML='<div style="text-align:center;padding:40px 0;color:#aaa">加载附件中...</div>';
+  document.getElementById('detail-overlay').style.display='flex';
+  // Load attachments from Firebase if not cached
+  if(r.attachments&&r.attachments.length&&fbReady){
+    const missing=r.attachments.filter(a=>!a.data);
+    if(missing.length){
+      const loaded=await fbLoadAtts(r.attachments);
+      r.attachments=loaded;
+    }
+  }
+  _renderDetail(r);
+}
+function _renderDetail(r){
+  const bc={pending:'badge-pending',approved:'badge-approved',rejected:'badge-rejected',draft:'badge-draft'}[r.status]||'badge-draft';
+  const log=r.approvalLog&&r.approvalLog.length?r.approvalLog.filter(l=>l.action!=='resubmit').slice(-1)[0]:null;
+  const fs=r.formState||{};
+
+  // Travel / Overseas info block
+  let travelHtml='';
+  if(r.type==='国内差旅'&&(fs.travelStart||fs.travelFrom)){
+    const days=fs.travelStart&&fs.travelEnd?Math.round((new Date(fs.travelEnd)-new Date(fs.travelStart))/86400000)+1:0;
+    const subsidy=days*(DOMESTIC_ALLOWANCE||200);
+    travelHtml=`<div style="margin:12px 0 0;background:#F8F8F8;border-radius:8px;padding:10px 14px;font-size:12px">
+      <div style="font-weight:600;color:#444;margin-bottom:6px">差旅信息</div>
+      <div style="display:flex;flex-wrap:wrap;gap:12px;color:#555">
+        ${fs.travelFrom?`<span>出发地：<strong>${fs.travelFrom}</strong></span>`:''}
+        ${fs.travelTo?`<span>目的地：<strong>${fs.travelTo}</strong></span>`:''}
+        ${fs.travelStart?`<span>出发：<strong>${fs.travelStart}</strong></span>`:''}
+        ${fs.travelEnd?`<span>返回：<strong>${fs.travelEnd}</strong></span>`:''}
+        ${days>0?`<span>天数：<strong>${days}天</strong></span>`:''}
+        ${days>0?`<span>补贴(¥${DOMESTIC_ALLOWANCE}/天)：<strong style="color:#1A5276">¥${subsidy.toFixed(2)}</strong></span>`:''}
+      </div>
+    </div>`;
+  }
+  if(r.type==='海外出差'&&(fs.osStart||fs.osDest)){
+    const days=fs.osStart&&fs.osEnd?Math.round((new Date(fs.osEnd)-new Date(fs.osStart))/86400000)+1:0;
+    const subsidy=days*(OVERSEAS_ALLOWANCE||300);
+    const subsidyEnabled=fs.osSubsidyEnabled!==false;
+    travelHtml=`<div style="margin:12px 0 0;background:#EBF5FB;border-radius:8px;padding:10px 14px;font-size:12px">
+      <div style="font-weight:600;color:#1A5276;margin-bottom:6px">海外出差信息</div>
+      <div style="display:flex;flex-wrap:wrap;gap:12px;color:#555">
+        ${fs.osDest?`<span>目的地：<strong>${fs.osDest}</strong></span>`:''}
+        ${fs.osCurrency?`<span>币种：<strong>${fs.osCurrency}</strong></span>`:''}
+        ${fs.osRate?`<span>汇率：<strong>${fs.osRate}</strong></span>`:''}
+        ${fs.osStart?`<span>出发：<strong>${fs.osStart}</strong></span>`:''}
+        ${fs.osEnd?`<span>返回：<strong>${fs.osEnd}</strong></span>`:''}
+        ${days>0?`<span>天数：<strong>${days}天</strong></span>`:''}
+        <span>补贴(¥${OVERSEAS_ALLOWANCE}/天)：<strong style="color:${subsidyEnabled?'#1A5276':'#aaa'}">${subsidyEnabled?'¥'+subsidy.toFixed(2):'已取消，下次另行申报'}</strong></span>
+      </div>
+    </div>`;
+  }
+
+  // Build items table if available
+  let itemsHtml='';
+  if(r.items&&r.items.length){
+    itemsHtml=`<div style="margin:12px 0 0">
+      <div style="font-size:12px;font-weight:600;color:#444;margin-bottom:6px">费用明细</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="background:#F8F8F8">
+          <th style="padding:6px 8px;text-align:left;color:#999;font-weight:500;border-bottom:1px solid #F0F0F0">类别</th>
+          <th style="padding:6px 8px;text-align:left;color:#999;font-weight:500;border-bottom:1px solid #F0F0F0">说明</th>
+          <th style="padding:6px 8px;text-align:left;color:#999;font-weight:500;border-bottom:1px solid #F0F0F0">日期</th>
+          <th style="padding:6px 8px;text-align:right;color:#999;font-weight:500;border-bottom:1px solid #F0F0F0">金额</th>
+        </tr></thead><tbody>
+        ${r.items.map(it=>`<tr>
+          <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5">${it.cat||it.category||'—'}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5;color:#666">${it.desc||it.description||'—'}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5;color:#999">${it.date||it.item_date||'—'}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5;text-align:right;font-weight:600">${it.amountCNY?'¥'+parseFloat(it.amountCNY).toFixed(2):it.amount?'¥'+parseFloat(it.amount).toFixed(2):'—'}</td>
+        </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+  }
+
+  // Attachments
+  const attHtml=r.attachments&&r.attachments.length
+    ?`<div style="margin:12px 0 0">
+        <div style="font-size:12px;font-weight:600;color:#444;margin-bottom:6px">附件（${r.attachments.length}张）</div>
+        <div style="display:flex;flex-wrap:wrap;gap:8px">
+          ${r.attachments.map((a,i)=>a.data
+            ?(a.type==='application/pdf'
+              ?`<div class="attach-thumb-pdf" onclick="previewAtt(${i},'${r.id}')" style="cursor:pointer">PDF</div>`
+              :`<img src="${a.data}" class="attach-thumb" onclick="previewAtt(${i},'${r.id}')" style="cursor:pointer"/>`)
+            :`<span style="font-size:11px;color:#999;background:#F5F5F5;padding:4px 8px;border-radius:6px">📎 ${a.name}</span>`
+          ).join('')}
+        </div>
+      </div>`
+    :'';
+
+  // Remark
+  const remarkHtml=r.remark?`<div style="margin:12px 0 0;padding:10px 12px;background:#F8F8F8;border-radius:8px;font-size:12px;color:#555"><strong>备注：</strong>${r.remark}</div>`:'';
+
+  // Approval log
+  const logHtml=log?`<div style="margin:12px 0 0;padding:10px 12px;border-radius:8px;border-left:3px solid ${log.action==='approved'?'#27AE60':'#E74C3C'};background:${log.action==='approved'?'#EAFAF1':'#FDEDEC'};font-size:12px">
+    <strong>${log.action==='approved'?'✓ 已批准':'✗ 已驳回'}</strong> · ${log.approverName||'—'} · ${log.time||'—'}
+    ${log.comment?`<div style="margin-top:4px;color:#666">${log.comment}</div>`:''}
+  </div>`:'';
+
+  document.getElementById('detail-content').innerHTML=`
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
+      <div>
+        <div style="font-size:16px;font-weight:700;color:#1a1a1a">${r.name} · ${r.type}</div>
+        <div style="font-size:11px;color:#aaa;margin-top:2px">${r.id} · ${r.submitTime||r.date||''}</div>
+      </div>
+      <span class="badge ${bc}">${STATUS_LABEL[r.status]||r.status}</span>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:4px">
+      ${[['部门',r.dept||'—'],['事由',r.reason||'—'],['申请日期',r.date||'—'],['金额',r.amount||'—']].map(([l,v])=>`
+        <div style="background:#F8F8F8;border-radius:8px;padding:8px 12px">
+          <div style="font-size:11px;color:#aaa">${l}</div>
+          <div style="font-size:13px;font-weight:600;color:#1a1a1a;margin-top:2px">${v}</div>
+        </div>`).join('')}
+    </div>
+    ${travelHtml}${itemsHtml}${attHtml}${remarkHtml}${logHtml}
+    <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
+      ${r.status==='pending'?`
+        <button class="btn-approve" onclick="closeDetail();openApproveModal('${r.id}','approved')">✓ 批准</button>
+        <button class="btn-reject" onclick="closeDetail();openApproveModal('${r.id}','rejected')">✗ 驳回</button>`:''}
+      <button class="btn btn-secondary" style="font-size:13px;padding:7px 16px" onclick="closeDetail()">关闭</button>
+    </div>`;
+  document.getElementById('detail-overlay').style.display='flex';
+}
+
 function openApproveModal(id,action){
   pendingApprovalAction={id,action};
   const r=records.find(r=>r.id===id);
   const isApprove=action==='approved';
-  const currentAmt=safeAmount(r);
-  const currentRaw=r.rawAmount||(parseFloat((r.amount||'0').replace(/[¥,]/g,''))||0);
   document.getElementById('modal-title').textContent=isApprove?'确认批准此申请':'确认驳回此申请';
-  document.getElementById('modal-sub').textContent=r?r.name+' · '+r.type+' · '+r.date:'';
+  document.getElementById('modal-sub').textContent=r?r.name+' · '+r.type+' · '+r.amount:'';
   document.getElementById('modal-comment').value='';
-  // Show amount correction field only when amount is 0
-  const amtField=document.getElementById('modal-amount-field');
-  const amtInput=document.getElementById('modal-amount-input');
-  if(amtField&&amtInput){
-    if(currentRaw===0){
-      amtField.style.display='block';
-      amtInput.value='';
-      amtInput.placeholder='请输入正确的报销金额（元）';
-    } else {
-      amtField.style.display='none';
-      amtInput.value=currentRaw.toFixed(2);
-    }
-  }
   document.getElementById('modal-comment-label').textContent=isApprove?'审批意见（选填）':'驳回原因（必填）';
   const btn=document.getElementById('modal-confirm-btn');
   btn.textContent=isApprove?'确认批准':'确认驳回';
@@ -1305,20 +1880,12 @@ function confirmApproval(){
   if(action==='rejected'&&!comment){showToast('请填写驳回原因');return;}
   const r=records.find(r=>r.id===id);
   if(r){
-    // Save corrected amount if provided
-    const amtInput=document.getElementById('modal-amount-input');
-    if(amtInput&&amtInput.value){
-      const corrected=parseFloat(amtInput.value)||0;
-      if(corrected>0){
-        r.rawAmount=corrected;
-        r.amount='¥'+corrected.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
-      }
-    }
     r.status=action;
     if(!r.approvalLog)r.approvalLog=[];
     r.approvalLog.push({action,approverName:currentUser.name,approverId:currentUser.id,time:new Date().toLocaleString('zh-CN'),comment});
+    fbSaveRec(r);
     saveRecords();updateMetrics();closeModal();renderApproveList();updatePendingBadge();
-    showToast(action==='approved'?'已批准 · '+safeAmount(r):'已驳回');
+    showToast(action==='approved'?'已批准 · '+r.amount:'已驳回');
   }
 }
 
@@ -1406,6 +1973,37 @@ function calcFx(){
 // ══════════════════════════════════════════════════════
 // EXPORT
 // ══════════════════════════════════════════════════════
+async function downloadAllZip(){
+  if(typeof JSZip==='undefined'){showToast('JSZip 未加载，请稍候重试');return;}
+  const data=records.filter(r=>r.attachments&&r.attachments.length);
+  if(!data.length){showToast('所有申请均无附件');return;}
+  const totalCount=data.reduce((s,r)=>s+r.attachments.length,0);
+  showToast(`正在打包 ${totalCount} 个附件…`);
+  try{
+    const zip=new JSZip();
+    data.forEach(rec=>{
+      const folder=zip.folder(`${rec.id}_${rec.name||''}`);
+      const nameCount={};
+      rec.attachments.forEach(att=>{
+        const base=att.name||'附件';
+        nameCount[base]=(nameCount[base]||0)+1;
+        const count=nameCount[base];
+        const fname=count>1?base.replace(/(\.[^.]+)$/,`_${count}$1`):base;
+        const b64=att.data.split(',')[1]||att.data;
+        folder.file(fname,b64,{base64:true});
+      });
+    });
+    const blob=await zip.generateAsync({type:'blob'});
+    const url=URL.createObjectURL(blob);
+    const a=document.createElement('a');
+    a.href=url;
+    a.download=`全部报销附件_${new Date().toISOString().split('T')[0]}.zip`;
+    a.click();
+    setTimeout(()=>URL.revokeObjectURL(url),3000);
+    showToast(`已下载 ${totalCount} 个附件，共 ${data.length} 条申请`);
+  }catch(e){showToast('打包失败：'+e.message);}
+}
+
 function exportExcel(scope){
   if(typeof XLSX==='undefined'){showToast('请稍候...');return;}
   const today=new Date().toLocaleDateString('zh-CN');
@@ -1413,12 +2011,39 @@ function exportExcel(scope){
   const rows=data.map(r=>{
     const log=r.approvalLog&&r.approvalLog.length?r.approvalLog.filter(l=>l.action!=='resubmit').slice(-1)[0]:null;
     const attNames=r.attachments&&r.attachments.length?r.attachments.map(a=>a.name).join('、'):'无';
-    return[r.id,r.name,r.dept||'',r.type,r.reason,r.date,r.rawAmount||(parseFloat((r.amount||"0").replace(/[¥,]/g,""))||0),STATUS_LABEL[r.status]||r.status,attNames,r.attachments?r.attachments.length:0,r.submitTime||'',log?log.approverName:'',log?log.time:'',log&&log.comment?log.comment:''];
+    const fs=r.formState||{};
+    // Travel/overseas info
+    let destination='',startDate='',endDate='',days=0,subsidyAmt=0,subsidyNote='';
+    if(r.type==='国内差旅'){
+      destination=(fs.travelFrom&&fs.travelTo)?fs.travelFrom+'→'+fs.travelTo:(fs.travelTo||fs.travelFrom||'');
+      startDate=fs.travelStart||''; endDate=fs.travelEnd||'';
+      if(startDate&&endDate) days=Math.round((new Date(endDate)-new Date(startDate))/86400000)+1;
+      subsidyAmt=days*(DOMESTIC_ALLOWANCE||200);
+      subsidyNote=days>0?days+'天×¥'+(DOMESTIC_ALLOWANCE||200)+'/天=¥'+subsidyAmt.toFixed(2):'';
+    } else if(r.type==='海外出差'){
+      destination=fs.osDest||'';
+      startDate=fs.osStart||''; endDate=fs.osEnd||'';
+      if(startDate&&endDate) days=Math.round((new Date(endDate)-new Date(startDate))/86400000)+1;
+      const enabled=fs.osSubsidyEnabled!==false;
+      subsidyAmt=enabled?days*(OVERSEAS_ALLOWANCE||300):0;
+      subsidyNote=enabled&&days>0?days+'天×¥'+(OVERSEAS_ALLOWANCE||300)+'/天=¥'+subsidyAmt.toFixed(2):'已取消，下次申报';
+    }
+    const expenseOnly=(r.rawAmount||0)-subsidyAmt;
+    return[r.id,r.name,r.dept||'',r.type,r.reason,r.date,
+      expenseOnly>0?Math.round(expenseOnly*100)/100:r.rawAmount||0,
+      subsidyAmt||'',subsidyNote,r.rawAmount||0,
+      STATUS_LABEL[r.status]||r.status,destination,startDate,endDate,days||'',
+      attNames,r.attachments?r.attachments.length:0,r.submitTime||'',
+      log?log.approverName:'',log?log.time:'',log&&log.comment?log.comment:''];
   });
-  const hdr=['申请编号','申请人','部门','费用类型','事由','日期','金额(元)','状态','附件文件名','附件数','提交时间','审批人','审批时间','审批意见'];
-  const ws=XLSX.utils.aoa_to_sheet([['公司报销管理系统 — '+(scope==='my'?currentUser.name+'的记录':'全部记录')+'（'+today+'）',...Array(13).fill('')],hdr,...rows]);
-  ws['!cols']=[{wch:22},{wch:8},{wch:8},{wch:10},{wch:20},{wch:12},{wch:12},{wch:8},{wch:28},{wch:6},{wch:16},{wch:8},{wch:16},{wch:28}];
-  ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:13}}];
+  const hdr=['申请编号','申请人','部门','费用类型','事由','日期',
+    '费用金额(元)','补贴金额(元)','补贴说明','报销合计(元)',
+    '状态','目的地','出发日期','返回日期','天数',
+    '附件文件名','附件数','提交时间','审批人','审批时间','审批意见'];
+  const colCount=hdr.length;
+  const ws=XLSX.utils.aoa_to_sheet([['公司报销管理系统 — '+(scope==='my'?currentUser.name+'的记录':'全部记录')+'（'+today+'）',...Array(colCount-1).fill('')],hdr,...rows]);
+  ws['!cols']=[{wch:22},{wch:8},{wch:8},{wch:10},{wch:20},{wch:12},{wch:12},{wch:12},{wch:24},{wch:12},{wch:8},{wch:14},{wch:12},{wch:12},{wch:6},{wch:28},{wch:6},{wch:16},{wch:8},{wch:16},{wch:28}];
+  ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:colCount-1}}];
   const tS={font:{name:'Arial',sz:13,bold:true,color:{rgb:'FFFFFF'}},fill:{fgColor:{rgb:'2C3E50'}},alignment:{horizontal:'center',vertical:'center'}};
   const hS={font:{name:'Arial',sz:10,bold:true,color:{rgb:'1F3864'}},fill:{fgColor:{rgb:'D6E4F0'}},alignment:{horizontal:'center'}};
   const sB={已批准:'D5F5E3',待审批:'FEF9E7',已驳回:'FADBD8'};
@@ -1426,8 +2051,8 @@ function exportExcel(scope){
   hdr.forEach((_,ci)=>{const a=XLSX.utils.encode_cell({r:1,c:ci});if(ws[a])ws[a].s=hS;});
   rows.forEach((row,ri)=>{
     const bg=ri%2===0?'F8F9FA':'FFFFFF';
-    row.forEach((_,ci)=>{const a=XLSX.utils.encode_cell({r:ri+2,c:ci});if(!ws[a])return;const fill=ci===7&&sB[row[7]]?sB[row[7]]:bg;ws[a].s={font:{name:'Arial',sz:10},fill:{fgColor:{rgb:fill}}};});
-    const aa=XLSX.utils.encode_cell({r:ri+2,c:6});if(ws[aa])ws[aa].z='#,##0.00';
+    row.forEach((_,ci)=>{const a=XLSX.utils.encode_cell({r:ri+2,c:ci});if(!ws[a])return;const fill=ci===10&&sB[row[10]]?sB[row[10]]:bg;ws[a].s={font:{name:'Arial',sz:10},fill:{fgColor:{rgb:fill}}};});
+    [6,7,9].forEach(ci=>{const a=XLSX.utils.encode_cell({r:ri+2,c:ci});if(ws[a]&&row[ci])ws[a].z='#,##0.00';});
   });
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'申请记录');
   const fname=(scope==='my'?currentUser.name+'_报销_':'全部报销_')+new Date().toISOString().split('T')[0]+'.xlsx';
