@@ -614,6 +614,14 @@ body{font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;background:#F2
       <div class="modal-handle"></div>
       <div class="modal-title" id="modal-title"></div>
       <div class="modal-sub" id="modal-sub"></div>
+      <div class="field" id="modal-amount-field" style="display:none;margin-bottom:12px">
+        <label style="font-size:12px;color:#666;font-weight:500;margin-bottom:4px;display:block">
+          报销金额（元）<span style="color:#E24B4A;font-size:11px;margin-left:4px">⚠ 系统记录为0，请手动填写正确金额</span>
+        </label>
+        <input type="number" id="modal-amount-input" step="0.01" min="0"
+          style="border:1.5px solid #E24B4A;border-radius:9px;padding:9px 11px;font-size:15px;font-weight:600;background:#fff;color:#1a1a1a;outline:none;width:100%;font-family:inherit"
+          placeholder="请输入正确的报销金额"/>
+      </div>
       <div class="field">
         <label id="modal-comment-label" style="font-size:12px;color:#666;font-weight:500;margin-bottom:4px;display:block">审批意见</label>
         <textarea id="modal-comment" style="border:1px solid #E0E0E0;border-radius:9px;padding:9px 11px;font-size:13px;background:#fff;color:#1a1a1a;resize:vertical;min-height:88px;width:100%;outline:none;font-family:inherit;line-height:1.5" placeholder="请填写审批意见（驳回时必填）..."></textarea>
@@ -1195,10 +1203,14 @@ function renderAllRecords(){
   data.forEach(r=>{
     const bc={pending:'badge-pending',approved:'badge-approved',rejected:'badge-rejected'}[r.status]||'badge-pending';
     const log=r.approvalLog&&r.approvalLog.length?r.approvalLog.filter(l=>l.action!=='resubmit').slice(-1)[0]:null;
+    const raw=r.rawAmount||(parseFloat((r.amount||'0').replace(/[¥,]/g,''))||0);
+    const amtCell=raw===0
+      ? `<td><span style="color:#E24B4A;font-size:12px">¥0 </span><button onclick="fixAmount('${r.id}')" style="font-size:11px;padding:2px 7px;background:#FEF9E7;color:#7D6608;border:1px solid #F9E79F;border-radius:5px;cursor:pointer;font-family:inherit">修正</button></td>`
+      : `<td style="font-weight:700">${safeAmount(r)}</td>`;
     const tr=document.createElement('tr');
     tr.innerHTML=`<td style="font-size:11px;color:#999">${r.id}</td><td>${r.name}</td><td style="color:#999">${r.dept}</td><td>${r.type}</td>
       <td style="max-width:80px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.reason}">${r.reason}</td>
-      <td style="font-weight:700">${safeAmount(r)}</td><td style="color:#999">${r.date}</td>
+      ${amtCell}<td style="color:#999">${r.date}</td>
       <td>${attachBadge(r)}</td>
       <td><span class="badge ${bc}">${STATUS_LABEL[r.status]}</span></td>
       <td>${log?log.approverName:'—'}</td>
@@ -1208,6 +1220,18 @@ function renderAllRecords(){
   });
 }
 
+function fixAmount(id){
+  const r=records.find(r=>r.id===id);if(!r)return;
+  const input=prompt('请输入「'+r.reason+'」的正确报销金额（元）：','');
+  if(input===null)return;
+  const val=parseFloat(input);
+  if(isNaN(val)||val<0){showToast('金额无效，请输入数字');return;}
+  r.rawAmount=val;
+  r.amount='¥'+val.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+  saveRecords();renderAllRecords();
+  showToast('已修正为 ¥'+val.toFixed(2));
+}
+
 // ══════════════════════════════════════════════════════
 // APPROVAL
 // ══════════════════════════════════════════════════════
@@ -1215,9 +1239,24 @@ function openApproveModal(id,action){
   pendingApprovalAction={id,action};
   const r=records.find(r=>r.id===id);
   const isApprove=action==='approved';
+  const currentAmt=safeAmount(r);
+  const currentRaw=r.rawAmount||(parseFloat((r.amount||'0').replace(/[¥,]/g,''))||0);
   document.getElementById('modal-title').textContent=isApprove?'确认批准此申请':'确认驳回此申请';
-  document.getElementById('modal-sub').textContent=r?r.name+' · '+r.type+' · '+safeAmount(r):'';
+  document.getElementById('modal-sub').textContent=r?r.name+' · '+r.type+' · '+r.date:'';
   document.getElementById('modal-comment').value='';
+  // Show amount correction field only when amount is 0
+  const amtField=document.getElementById('modal-amount-field');
+  const amtInput=document.getElementById('modal-amount-input');
+  if(amtField&&amtInput){
+    if(currentRaw===0){
+      amtField.style.display='block';
+      amtInput.value='';
+      amtInput.placeholder='请输入正确的报销金额（元）';
+    } else {
+      amtField.style.display='none';
+      amtInput.value=currentRaw.toFixed(2);
+    }
+  }
   document.getElementById('modal-comment-label').textContent=isApprove?'审批意见（选填）':'驳回原因（必填）';
   const btn=document.getElementById('modal-confirm-btn');
   btn.textContent=isApprove?'确认批准':'确认驳回';
@@ -1231,6 +1270,15 @@ function confirmApproval(){
   if(action==='rejected'&&!comment){showToast('请填写驳回原因');return;}
   const r=records.find(r=>r.id===id);
   if(r){
+    // Save corrected amount if provided
+    const amtInput=document.getElementById('modal-amount-input');
+    if(amtInput&&amtInput.value){
+      const corrected=parseFloat(amtInput.value)||0;
+      if(corrected>0){
+        r.rawAmount=corrected;
+        r.amount='¥'+corrected.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');
+      }
+    }
     r.status=action;
     if(!r.approvalLog)r.approvalLog=[];
     r.approvalLog.push({action,approverName:currentUser.name,approverId:currentUser.id,time:new Date().toLocaleString('zh-CN'),comment});
