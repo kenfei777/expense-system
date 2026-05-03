@@ -888,14 +888,43 @@ function addHotelRow(){
         <div class="hotel-dates">
           <label>退房</label><input type="date" class="hotel-checkout" value="${today}" onchange="calcHotelNights(this)"/>
         </div>
-        <div><span class="hotel-nights-badge" style="display:none">0 晚</span></div>
+        <div style="display:flex;align-items:center;gap:6px;margin-top:3px">
+          <span class="hotel-nights-badge" style="display:none">0 晚</span>
+          <label style="font-size:10px;color:#888;display:flex;align-items:center;gap:3px;cursor:pointer">
+            <input type="checkbox" class="hotel-cny-mode" onchange="toggleHotelMode(this)" style="width:auto"/> 人民币
+          </label>
+        </div>
       </div>
     </td>
-    <td><input type="number" class="os-foreign hotel-foreign" placeholder="每晚外币" step="0.01" oninput="calcHotelAmt(this)"/></td>
+    <td>
+      <div class="hotel-foreign-wrap">
+        <input type="number" class="os-foreign hotel-foreign" placeholder="每晚外币" step="0.01" oninput="calcHotelAmt(this)" style="display:block"/>
+        <input type="number" class="hotel-cny-direct" placeholder="人民币总额" step="0.01" oninput="calcOverseasTotal()" style="display:none"/>
+      </div>
+    </td>
     <td><input type="text" class="os-cny" readonly style="background:#F7F8FA;font-size:12px"/></td>
     <td><select>${makeRcptOpts()}</select></td>
     <td><button class="del-btn" onclick="delRow(this,'overseas')">×</button></td>`;
   tbody.appendChild(tr);
+}
+
+function toggleHotelMode(cb){
+  const tr=cb.closest('tr');
+  const isCny=cb.checked;
+  const foreignInput=tr.querySelector('.hotel-foreign');
+  const cnyInput=tr.querySelector('.hotel-cny-direct');
+  const cnyCell=tr.querySelector('.os-cny');
+  if(isCny){
+    foreignInput.style.display='none';foreignInput.value='';
+    cnyInput.style.display='block';
+    cnyCell.style.background='#F0FFF4';
+    cnyCell.placeholder='同左';
+  } else {
+    foreignInput.style.display='block';
+    cnyInput.style.display='none';cnyInput.value='';
+    cnyCell.style.background='#F7F8FA';
+  }
+  calcOverseasTotal();
 }
 
 function calcHotelNights(el){
@@ -906,10 +935,14 @@ function calcHotelNights(el){
   const fi=tr.querySelector('.hotel-foreign');
   if(!ci||!co){badge.style.display='none';return;}
   const diff=new Date(co)-new Date(ci);
-  if(diff<=0){badge.textContent='⚠ 日期有误';badge.style.display='';badge.style.background='#FADBD8';badge.style.color='#922B21';return;}
+  if(diff<=0){
+    badge.textContent='⚠ 日期有误';badge.style.display='';
+    badge.style.background='#FADBD8';badge.style.color='#922B21';
+    return;
+  }
   const nights=Math.round(diff/86400000);
-  badge.textContent=nights+' 晚';badge.style.display='';badge.style.background='#D6EAF8';badge.style.color='#1A5276';
-  // update total amount = nights × per-night rate
+  badge.textContent=nights+' 晚';badge.style.display='';
+  badge.style.background='#D6EAF8';badge.style.color='#1A5276';
   if(fi&&fi.value) calcHotelAmt(fi);
 }
 
@@ -922,6 +955,7 @@ function calcHotelAmt(fi){
     if(diff>0){
       const nights=Math.round(diff/86400000);
       const perNight=parseFloat(fi.value)||0;
+      fi.dataset.nights=nights;
       fi.dataset.total=(nights*perNight).toFixed(2);
     }
   }
@@ -991,26 +1025,43 @@ function calcOverseasTotal(){
   document.querySelectorAll('#overseas-body tr').forEach(tr=>{
     const fi=tr.querySelector('.os-foreign');
     const ci=tr.querySelector('.os-cny');
-    if(!fi||!ci)return;
-    let foreignAmt=0;
+    if(!ci)return;
+
     if(tr.dataset.hotelRow==='1'){
-      // hotel row: amount = nights × per-night rate (stored in data-total)
-      const checkin=tr.querySelector('.hotel-checkin');
-      const checkout=tr.querySelector('.hotel-checkout');
-      if(checkin&&checkout&&checkin.value&&checkout.value){
-        const diff=new Date(checkout.value)-new Date(checkin.value);
-        if(diff>0){
-          const nights=Math.round(diff/86400000);
-          const perNight=parseFloat(fi.value)||0;
-          foreignAmt=nights*perNight;
+      const cnyMode=tr.querySelector('.hotel-cny-mode');
+      const isCny=cnyMode&&cnyMode.checked;
+
+      if(isCny){
+        // Direct CNY input
+        const cnyDirect=tr.querySelector('.hotel-cny-direct');
+        const val=parseFloat(cnyDirect&&cnyDirect.value)||0;
+        ci.value=val>0?'¥'+val.toFixed(2):'';
+        sum+=val;
+      } else {
+        // Foreign currency × nights
+        const checkin=tr.querySelector('.hotel-checkin');
+        const checkout=tr.querySelector('.hotel-checkout');
+        let foreignAmt=0;
+        if(checkin&&checkout&&checkin.value&&checkout.value){
+          const diff=new Date(checkout.value)-new Date(checkin.value);
+          if(diff>0){
+            const nights=Math.round(diff/86400000);
+            const perNight=parseFloat(fi&&fi.value)||0;
+            foreignAmt=nights*perNight;
+          }
         }
+        const cny=foreignAmt*rate;
+        ci.value=foreignAmt>0?'¥'+cny.toFixed(2):'';
+        sum+=cny;
       }
     } else {
-      foreignAmt=parseFloat(fi.value)||0;
+      // Normal overseas row
+      if(!fi)return;
+      const foreignAmt=parseFloat(fi.value)||0;
+      const cny=foreignAmt*rate;
+      ci.value=foreignAmt>0?'¥'+cny.toFixed(2):'';
+      sum+=cny;
     }
-    const cny=foreignAmt*rate;
-    ci.value=foreignAmt>0?'¥'+cny.toFixed(2):'';
-    sum+=cny;
   });
   const subText=document.getElementById('os-subsidy').textContent||'¥0';
   const sub=parseFloat(subText.replace(/[¥,]/g,''))||0;
