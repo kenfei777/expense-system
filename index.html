@@ -2,7 +2,14 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#2C3E50">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="报销系统">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-192.png">
 <title>公司报销管理系统</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
@@ -1436,19 +1443,16 @@ function restoreFormState(state){
   });
 }
 
-async function editDraft(id){
+function editDraft(id){
   const r=records.find(rec=>rec.id===id);
   if(!r||r.status!=='draft'){showToast('找不到草稿记录');return;}
 
+  // Reverse-map display type → form value
   const TYPE_REVERSE={'日常费用':'daily','国内差旅':'travel','海外出差':'overseas','租车 / 汽油':'car','租车/汽油':'car'};
 
-  // Get formState: first try in-memory, then Firebase, then localStorage
-  let fs = r.formState || lsGet('expense:fs:'+id, null);
-  if(!fs) fs = await fbLoadFormState(id);
-
-  if(fs){
+  if(r.formState){
     try{
-      restoreFormState(fs);
+      restoreFormState(r.formState);
       currentAttachments=r.attachments?[...r.attachments]:[];
       renderAttachList();
       _formLocked=true;
@@ -2063,6 +2067,44 @@ function showToast(msg){const t=document.getElementById('toast');t.textContent=m
 // INIT
 // ══════════════════════════════════════════════════════
 loadAll();
+</script>
+<script>
+// ── PWA Service Worker 注册 ──────────────────────────
+if('serviceWorker' in navigator){
+  window.addEventListener('load', ()=>{
+    navigator.serviceWorker.register('sw.js')
+      .then(reg=>{
+        console.log('SW registered:', reg.scope);
+        // 检测新版本
+        reg.addEventListener('updatefound', ()=>{
+          const newWorker = reg.installing;
+          newWorker.addEventListener('statechange', ()=>{
+            if(newWorker.state==='installed' && navigator.serviceWorker.controller){
+              showToast('系统有新版本，刷新后生效');
+            }
+          });
+        });
+      })
+      .catch(e=>console.log('SW registration failed:', e));
+  });
+}
+
+// ── PWA 安装提示 ─────────────────────────────────────
+let deferredPrompt = null;
+window.addEventListener('beforeinstallprompt', e=>{
+  e.preventDefault();
+  deferredPrompt = e;
+  // 登录成功后显示安装提示
+  setTimeout(()=>{
+    if(deferredPrompt && currentUser){
+      showToast('💡 可添加到主屏幕，像 App 一样使用');
+    }
+  }, 3000);
+});
+window.addEventListener('appinstalled', ()=>{
+  deferredPrompt = null;
+  showToast('✅ 已添加到主屏幕');
+});
 </script>
 </body>
 </html>
