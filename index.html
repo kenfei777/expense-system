@@ -1333,7 +1333,6 @@ function captureFormState(){
       // amount / foreign amount
       if(t==='overseas'){
         row.foreign=cells[3]?.querySelector('.os-foreign')?.value||'';
-        row.cny=cells[4]?.querySelector('.os-cny')?.value||'';
         const rcptIdx=5;
         row.receipt=cells[rcptIdx]?.querySelector('select')?.value||'';
       } else if(t==='car'){
@@ -1419,7 +1418,6 @@ function restoreFormState(state){
       // amount / receipt
       if(t==='overseas'){
         const fi=tr.querySelector('.os-foreign');if(fi)fi.value=row.foreign||'';
-        const ci=tr.querySelector('.os-cny');if(ci)ci.value=row.cny||'';
         const rcptSel=tr.querySelectorAll('td')[5]?.querySelector('select');
         if(rcptSel&&row.receipt)rcptSel.value=row.receipt;
         calcOverseasTotal();
@@ -1438,16 +1436,19 @@ function restoreFormState(state){
   });
 }
 
-function editDraft(id){
+async function editDraft(id){
   const r=records.find(rec=>rec.id===id);
   if(!r||r.status!=='draft'){showToast('找不到草稿记录');return;}
 
-  // Reverse-map display type → form value
   const TYPE_REVERSE={'日常费用':'daily','国内差旅':'travel','海外出差':'overseas','租车 / 汽油':'car','租车/汽油':'car'};
 
-  if(r.formState){
+  // Get formState: first try in-memory, then Firebase, then localStorage
+  let fs = r.formState || lsGet('expense:fs:'+id, null);
+  if(!fs) fs = await fbLoadFormState(id);
+
+  if(fs){
     try{
-      restoreFormState(r.formState);
+      restoreFormState(fs);
       currentAttachments=r.attachments?[...r.attachments]:[];
       renderAttachList();
       _formLocked=true;
@@ -1644,13 +1645,6 @@ async function editRejected(id){
   if(r.formState){
     showToast(`恢复中: formState有效, travel行数=${(r.formState.rows?.travel||[]).length}`);
     try{ restoreFormState(r.formState); }catch(e){ console.warn(e); clearForm(); }
-    // Check if overseas CNY values were lost (old records before the fix)
-    if(r.type==='海外出差'&&r.rawAmount>0){
-      const restoredTotal=parseFloat((document.getElementById('overseas-total')?.textContent||'0').replace(/[¥,]/g,''))||0;
-      if(restoredTotal<r.rawAmount*0.5){
-        showToast('⚠ 请核查海外费用明细，人民币金额可能需要重新填写');
-      }
-    }
   } else {
     showToast('formState不在记录里，从备份集合加载...');
     const fs = await fbLoadFormState(id);
