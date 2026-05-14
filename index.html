@@ -1620,6 +1620,9 @@ function renderMyRecords(){
     const log=r.approvalLog&&r.approvalLog.length?r.approvalLog.filter(l=>l.action!=='resubmit').slice(-1)[0]:null;
     const logHtml=log?`<div class="approval-log ${log.action}"><strong>${log.action==='approved'?'✓ 批准':'✗ 驳回'}</strong> · ${log.approverName} · ${log.time}${log.comment?'<br><span style="color:#888">'+log.comment+'</span>':''}</div>`:'<span style="font-size:12px;color:#ccc">—</span>';
     const tr=document.createElement('tr');
+    tr.style.cursor='pointer';
+    tr.title='点击查看明细';
+    tr.onclick=()=>showDetail(r.id);
     tr.innerHTML=`<td style="font-size:11px;color:#999">${r.id}</td><td>${r.type}</td>
       <td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.reason}">${r.reason}</td>
       <td style="font-weight:700">${r.amount}</td><td style="color:#999">${r.date}</td>
@@ -1627,9 +1630,10 @@ function renderMyRecords(){
       <td><span class="badge ${bc}">${STATUS_LABEL[r.status]}</span></td>
       <td>${logHtml}</td>
       <td style="white-space:nowrap">
-        ${r.status==='draft'?`<button class="btn-resubmit" style="background:#EBF5FB;color:#1A5276" onclick="editDraft('${r.id}')">编辑</button> <button class="btn-resubmit" onclick="submitDraft('${r.id}')">提交</button> `:''}
-        ${r.status==='rejected'?`<button class="btn-resubmit" style="background:#EBF5FB;color:#1A5276" onclick="editRejected('${r.id}')">修改</button> <button class="btn-resubmit" onclick="resubmit('${r.id}')">直接重新提交</button> `:''}
-        ${r.status!=='pending'?`<button style="font-size:11px;padding:5px 9px;background:#fff;color:#aaa;border:1px solid #E8E8E8;border-radius:6px;cursor:pointer;font-family:inherit" onclick="deleteMyRecord('${r.id}')">删除</button>`:''}
+        <button class="btn-resubmit" style="background:#EBF5FB;color:#1A5276;margin-right:4px" onclick="event.stopPropagation();showDetail('${r.id}')">查看明细</button>
+        ${r.status==='draft'?`<button class="btn-resubmit" style="background:#EBF5FB;color:#1A5276" onclick="event.stopPropagation();editDraft('${r.id}')">编辑</button> <button class="btn-resubmit" onclick="event.stopPropagation();submitDraft('${r.id}')">提交</button> `:''}
+        ${r.status==='rejected'?`<button class="btn-resubmit" style="background:#EBF5FB;color:#1A5276" onclick="event.stopPropagation();editRejected('${r.id}')">修改</button> <button class="btn-resubmit" onclick="event.stopPropagation();resubmit('${r.id}')">重新提交</button> `:''}
+        ${r.status!=='pending'?`<button style="font-size:11px;padding:5px 9px;background:#fff;color:#aaa;border:1px solid #E8E8E8;border-radius:6px;cursor:pointer;font-family:inherit" onclick="event.stopPropagation();deleteMyRecord('${r.id}')">删除</button>`:''}
       </td>`;
     tb.appendChild(tr);
   });
