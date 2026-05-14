@@ -2,14 +2,7 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
-<meta name="theme-color" content="#2C3E50">
-<meta name="mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="报销系统">
-<link rel="manifest" href="manifest.json">
-<link rel="apple-touch-icon" href="icon-192.png">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
 <title>公司报销管理系统</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
@@ -1443,16 +1436,19 @@ function restoreFormState(state){
   });
 }
 
-function editDraft(id){
+async function editDraft(id){
   const r=records.find(rec=>rec.id===id);
   if(!r||r.status!=='draft'){showToast('找不到草稿记录');return;}
 
-  // Reverse-map display type → form value
   const TYPE_REVERSE={'日常费用':'daily','国内差旅':'travel','海外出差':'overseas','租车 / 汽油':'car','租车/汽油':'car'};
 
-  if(r.formState){
+  // Get formState: first try in-memory, then Firebase, then localStorage
+  let fs = r.formState || lsGet('expense:fs:'+id, null);
+  if(!fs) fs = await fbLoadFormState(id);
+
+  if(fs){
     try{
-      restoreFormState(r.formState);
+      restoreFormState(fs);
       currentAttachments=r.attachments?[...r.attachments]:[];
       renderAttachList();
       _formLocked=true;
@@ -1750,21 +1746,22 @@ function _renderDetail(r){
   const bc={pending:'badge-pending',approved:'badge-approved',rejected:'badge-rejected',draft:'badge-draft'}[r.status]||'badge-draft';
   const log=r.approvalLog&&r.approvalLog.length?r.approvalLog.filter(l=>l.action!=='resubmit').slice(-1)[0]:null;
   const fs=r.formState||{};
+  const rate=parseFloat(fs.osRate)||1;
 
-  // Travel / Overseas info block
+  // Travel info block
   let travelHtml='';
   if(r.type==='国内差旅'&&(fs.travelStart||fs.travelFrom)){
     const days=fs.travelStart&&fs.travelEnd?Math.round((new Date(fs.travelEnd)-new Date(fs.travelStart))/86400000)+1:0;
     const subsidy=days*(DOMESTIC_ALLOWANCE||200);
-    travelHtml=`<div style="margin:12px 0 0;background:#F8F8F8;border-radius:8px;padding:10px 14px;font-size:12px">
-      <div style="font-weight:600;color:#444;margin-bottom:6px">差旅信息</div>
-      <div style="display:flex;flex-wrap:wrap;gap:12px;color:#555">
-        ${fs.travelFrom?`<span>出发地：<strong>${fs.travelFrom}</strong></span>`:''}
+    travelHtml=`<div style="margin:10px 0 0;background:#F8F8F8;border-radius:8px;padding:10px 14px;font-size:12px">
+      <div style="font-weight:600;color:#444;margin-bottom:6px">🚆 差旅信息</div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;color:#555">
+        ${fs.travelFrom?`<span>出发：<strong>${fs.travelFrom}</strong></span>`:''}
         ${fs.travelTo?`<span>目的地：<strong>${fs.travelTo}</strong></span>`:''}
-        ${fs.travelStart?`<span>出发：<strong>${fs.travelStart}</strong></span>`:''}
-        ${fs.travelEnd?`<span>返回：<strong>${fs.travelEnd}</strong></span>`:''}
+        ${fs.travelStart?`<span>出发日期：<strong>${fs.travelStart}</strong></span>`:''}
+        ${fs.travelEnd?`<span>返回日期：<strong>${fs.travelEnd}</strong></span>`:''}
         ${days>0?`<span>天数：<strong>${days}天</strong></span>`:''}
-        ${days>0?`<span>补贴(¥${DOMESTIC_ALLOWANCE}/天)：<strong style="color:#1A5276">¥${subsidy.toFixed(2)}</strong></span>`:''}
+        ${days>0?`<span style="color:#1A5276">补贴(¥${DOMESTIC_ALLOWANCE}/天)：<strong>¥${subsidy.toFixed(2)}</strong></span>`:''}
       </div>
     </div>`;
   }
@@ -1772,24 +1769,112 @@ function _renderDetail(r){
     const days=fs.osStart&&fs.osEnd?Math.round((new Date(fs.osEnd)-new Date(fs.osStart))/86400000)+1:0;
     const subsidy=days*(OVERSEAS_ALLOWANCE||300);
     const subsidyEnabled=fs.osSubsidyEnabled!==false;
-    travelHtml=`<div style="margin:12px 0 0;background:#EBF5FB;border-radius:8px;padding:10px 14px;font-size:12px">
-      <div style="font-weight:600;color:#1A5276;margin-bottom:6px">海外出差信息</div>
-      <div style="display:flex;flex-wrap:wrap;gap:12px;color:#555">
+    travelHtml=`<div style="margin:10px 0 0;background:#EBF5FB;border-radius:8px;padding:10px 14px;font-size:12px">
+      <div style="font-weight:600;color:#1A5276;margin-bottom:6px">✈️ 海外出差信息</div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;color:#555">
         ${fs.osDest?`<span>目的地：<strong>${fs.osDest}</strong></span>`:''}
         ${fs.osCurrency?`<span>币种：<strong>${fs.osCurrency}</strong></span>`:''}
-        ${fs.osRate?`<span>汇率：<strong>${fs.osRate}</strong></span>`:''}
+        ${fs.osRate?`<span>汇率：<strong>1 ${fs.osCurrency||''}= ¥${fs.osRate}</strong></span>`:''}
         ${fs.osStart?`<span>出发：<strong>${fs.osStart}</strong></span>`:''}
         ${fs.osEnd?`<span>返回：<strong>${fs.osEnd}</strong></span>`:''}
         ${days>0?`<span>天数：<strong>${days}天</strong></span>`:''}
-        <span>补贴(¥${OVERSEAS_ALLOWANCE}/天)：<strong style="color:${subsidyEnabled?'#1A5276':'#aaa'}">${subsidyEnabled?'¥'+subsidy.toFixed(2):'已取消，下次另行申报'}</strong></span>
+        <span style="color:${subsidyEnabled?'#1A5276':'#aaa'}">海外补贴(¥${OVERSEAS_ALLOWANCE}/天)：<strong>${subsidyEnabled?'¥'+subsidy.toFixed(2):'已取消'}</strong></span>
+      </div>
+    </div>`;
+  }
+  if(r.type==='租车/汽油'&&(fs.carCompany||fs.carStart)){
+    const days=fs.carStart&&fs.carEnd?Math.round((new Date(fs.carEnd)-new Date(fs.carStart))/86400000)+1:0;
+    const daily=parseFloat(fs.carDaily)||0;
+    const ins=parseFloat(fs.carInsurance)||0;
+    travelHtml=`<div style="margin:10px 0 0;background:#F8F8F8;border-radius:8px;padding:10px 14px;font-size:12px">
+      <div style="font-weight:600;color:#444;margin-bottom:6px">🚗 租车信息</div>
+      <div style="display:flex;flex-wrap:wrap;gap:10px;color:#555">
+        ${fs.carCompany?`<span>租车公司：<strong>${fs.carCompany}</strong></span>`:''}
+        ${fs.carModel?`<span>车型：<strong>${fs.carModel}</strong></span>`:''}
+        ${fs.carStart?`<span>开始：<strong>${fs.carStart}</strong></span>`:''}
+        ${fs.carEnd?`<span>归还：<strong>${fs.carEnd}</strong></span>`:''}
+        ${days>0?`<span>天数：<strong>${days}天</strong></span>`:''}
+        ${daily>0?`<span>日租金：<strong>¥${daily.toFixed(2)}</strong></span>`:''}
+        ${ins>0?`<span>保险：<strong>¥${ins.toFixed(2)}</strong></span>`:''}
+        ${days>0&&daily>0?`<span style="color:#1A5276">租车小计：<strong>¥${(days*daily+ins).toFixed(2)}</strong></span>`:''}
       </div>
     </div>`;
   }
 
-  // Build items table if available
+  // Build items table from formState.rows
   let itemsHtml='';
-  if(r.items&&r.items.length){
-    itemsHtml=`<div style="margin:12px 0 0">
+  const typeKey={daily:'daily',travel:'travel',overseas:'overseas',car:'car'}[
+    Object.keys({daily:'日常费用',travel:'国内差旅',overseas:'海外出差',car:'租车/汽油'}).find(k=>
+      ({daily:'日常费用',travel:'国内差旅',overseas:'海外出差',car:'租车/汽油'})[k]===r.type
+    )||'daily'
+  ];
+  const TYPE_KEY_MAP={'日常费用':'daily','国内差旅':'travel','海外出差':'overseas','租车/汽油':'car','租车 / 汽油':'car'};
+  const tkey=TYPE_KEY_MAP[r.type]||'daily';
+  const rows=(fs.rows&&fs.rows[tkey])||[];
+
+  if(rows.length>0){
+    const isOverseas=r.type==='海外出差';
+    const isCar=r.type==='租车/汽油'||r.type==='租车 / 汽油';
+    itemsHtml=`<div style="margin:10px 0 0">
+      <div style="font-size:12px;font-weight:600;color:#444;margin-bottom:6px">费用明细</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px">
+        <thead><tr style="background:#F8F8F8">
+          <th style="padding:6px 8px;text-align:left;color:#999;font-weight:500;border-bottom:1px solid #F0F0F0">类别</th>
+          <th style="padding:6px 8px;text-align:left;color:#999;font-weight:500;border-bottom:1px solid #F0F0F0">说明</th>
+          <th style="padding:6px 8px;text-align:left;color:#999;font-weight:500;border-bottom:1px solid #F0F0F0">日期</th>
+          ${isOverseas?`<th style="padding:6px 8px;text-align:right;color:#999;font-weight:500;border-bottom:1px solid #F0F0F0">外币</th>`:''}
+          <th style="padding:6px 8px;text-align:right;color:#999;font-weight:500;border-bottom:1px solid #F0F0F0">${isOverseas?'人民币':'金额(¥)'}</th>
+          ${!isCar?`<th style="padding:6px 8px;text-align:left;color:#999;font-weight:500;border-bottom:1px solid #F0F0F0">票据</th>`:''}
+        </tr></thead><tbody>
+        ${rows.map(row=>{
+          const dateStr=row.isHotel?(row.checkin&&row.checkout?`入住 ${row.checkin}<br>退房 ${row.checkout}`:row.checkin||'—'):row.date||'—';
+          let nights='';
+          if(row.isHotel&&row.checkin&&row.checkout){
+            const n=Math.round((new Date(row.checkout)-new Date(row.checkin))/86400000);
+            if(n>0)nights=` <span style="font-size:10px;color:#1A5276;background:#EBF5FB;padding:1px 5px;border-radius:10px">${n}晚</span>`;
+          }
+          let amtHtml='—';
+          if(isOverseas){
+            const foreign=parseFloat(row.foreign)||0;
+            const cnyDirect=parseFloat(row.cny)||0;
+            if(cnyDirect>0){
+              return `<tr>
+                <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5">${row.cat||'—'}</td>
+                <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5;color:#666">${row.desc||'—'}</td>
+                <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5;color:#999">${dateStr}${nights}</td>
+                <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5;text-align:right;color:#aaa">—</td>
+                <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5;text-align:right;font-weight:600">¥${cnyDirect.toFixed(2)}</td>
+                <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5;color:#999">${row.receipt||'—'}</td>
+              </tr>`;
+            }
+            let nights2=1;
+            if(row.isHotel&&row.checkin&&row.checkout){nights2=Math.max(1,Math.round((new Date(row.checkout)-new Date(row.checkin))/86400000));}
+            const totalForeign=row.isHotel?foreign*nights2:foreign;
+            const cny=totalForeign*rate;
+            return `<tr>
+              <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5">${row.cat||'住宿'}</td>
+              <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5;color:#666">${row.desc||'—'}</td>
+              <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5;color:#999">${dateStr}${nights}</td>
+              <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5;text-align:right;color:#888">${totalForeign>0?totalForeign.toFixed(2)+' '+(fs.osCurrency||''):'—'}</td>
+              <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5;text-align:right;font-weight:600">${cny>0?'¥'+cny.toFixed(2):'—'}</td>
+              <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5;color:#999">${row.receipt||'—'}</td>
+            </tr>`;
+          }
+          const amt=parseFloat(row.amount)||0;
+          return `<tr>
+            <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5">${row.cat||'—'}</td>
+            <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5;color:#666">${row.desc||'—'}</td>
+            <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5;color:#999">${dateStr}</td>
+            <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5;text-align:right;font-weight:600">${amt>0?'¥'+amt.toFixed(2):'—'}</td>
+            ${!isCar?`<td style="padding:6px 8px;border-bottom:1px solid #F5F5F5;color:#999">${row.receipt||'—'}</td>`:''}
+          </tr>`;
+        }).join('')}
+        </tbody>
+      </table>
+    </div>`;
+  } else if(r.items&&r.items.length){
+    // fallback: old records with r.items
+    itemsHtml=`<div style="margin:10px 0 0">
       <div style="font-size:12px;font-weight:600;color:#444;margin-bottom:6px">费用明细</div>
       <table style="width:100%;border-collapse:collapse;font-size:12px">
         <thead><tr style="background:#F8F8F8">
@@ -1801,18 +1886,20 @@ function _renderDetail(r){
         ${r.items.map(it=>`<tr>
           <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5">${it.cat||it.category||'—'}</td>
           <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5;color:#666">${it.desc||it.description||'—'}</td>
-          <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5;color:#999">${it.date||it.item_date||'—'}</td>
-          <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5;text-align:right;font-weight:600">${it.amountCNY?'¥'+parseFloat(it.amountCNY).toFixed(2):it.amount?'¥'+parseFloat(it.amount).toFixed(2):'—'}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5;color:#999">${it.date||'—'}</td>
+          <td style="padding:6px 8px;border-bottom:1px solid #F5F5F5;text-align:right;font-weight:600">${it.amount?'¥'+parseFloat(it.amount).toFixed(2):'—'}</td>
         </tr>`).join('')}
         </tbody>
       </table>
     </div>`;
+  } else {
+    itemsHtml=`<div style="margin:10px 0 0;padding:12px;background:#F8F8F8;border-radius:8px;font-size:12px;color:#aaa;text-align:center">暂无费用明细记录（旧版本提交的申请不包含明细）</div>`;
   }
 
   // Attachments
   const attHtml=r.attachments&&r.attachments.length
-    ?`<div style="margin:12px 0 0">
-        <div style="font-size:12px;font-weight:600;color:#444;margin-bottom:6px">附件（${r.attachments.length}张）</div>
+    ?`<div style="margin:10px 0 0">
+        <div style="font-size:12px;font-weight:600;color:#444;margin-bottom:6px">📎 发票附件（${r.attachments.length}张）</div>
         <div style="display:flex;flex-wrap:wrap;gap:8px">
           ${r.attachments.map((a,i)=>a.data
             ?(a.type==='application/pdf'
@@ -1825,16 +1912,20 @@ function _renderDetail(r){
     :'';
 
   // Remark
-  const remarkHtml=r.remark?`<div style="margin:12px 0 0;padding:10px 12px;background:#F8F8F8;border-radius:8px;font-size:12px;color:#555"><strong>备注：</strong>${r.remark}</div>`:'';
+  const remarkHtml=r.remark?`<div style="margin:10px 0 0;padding:10px 12px;background:#FEF9E7;border-radius:8px;font-size:12px;color:#555;border-left:3px solid #F39C12"><strong>备注：</strong>${r.remark}</div>`:'';
 
-  // Approval log
-  const logHtml=log?`<div style="margin:12px 0 0;padding:10px 12px;border-radius:8px;border-left:3px solid ${log.action==='approved'?'#27AE60':'#E74C3C'};background:${log.action==='approved'?'#EAFAF1':'#FDEDEC'};font-size:12px">
-    <strong>${log.action==='approved'?'✓ 已批准':'✗ 已驳回'}</strong> · ${log.approverName||'—'} · ${log.time||'—'}
-    ${log.comment?`<div style="margin-top:4px;color:#666">${log.comment}</div>`:''}
+  // Full approval log
+  const allLogs=r.approvalLog?r.approvalLog.filter(l=>l.action!=='resubmit'):[];
+  const logHtml=allLogs.length?`<div style="margin:10px 0 0">
+    <div style="font-size:12px;font-weight:600;color:#444;margin-bottom:6px">审批记录</div>
+    ${allLogs.map(l=>`<div style="padding:10px 12px;border-radius:8px;border-left:3px solid ${l.action==='approved'?'#27AE60':'#E74C3C'};background:${l.action==='approved'?'#EAFAF1':'#FDEDEC'};font-size:12px;margin-bottom:6px">
+      <strong>${l.action==='approved'?'✓ 批准':'✗ 驳回'}</strong> · ${l.approverName||'—'} · ${l.time||'—'}
+      ${l.comment?`<div style="margin-top:4px;color:#666">${l.comment}</div>`:''}
+    </div>`).join('')}
   </div>`:'';
 
   document.getElementById('detail-content').innerHTML=`
-    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px">
       <div>
         <div style="font-size:16px;font-weight:700;color:#1a1a1a">${r.name} · ${r.type}</div>
         <div style="font-size:11px;color:#aaa;margin-top:2px">${r.id} · ${r.submitTime||r.date||''}</div>
@@ -1850,7 +1941,7 @@ function _renderDetail(r){
     </div>
     ${travelHtml}${itemsHtml}${attHtml}${remarkHtml}${logHtml}
     <div style="display:flex;gap:8px;margin-top:16px;justify-content:flex-end">
-      ${r.status==='pending'?`
+      ${r.status==='pending'&&currentUser&&currentUser.role==='approver'?`
         <button class="btn-approve" onclick="closeDetail();openApproveModal('${r.id}','approved')">✓ 批准</button>
         <button class="btn-reject" onclick="closeDetail();openApproveModal('${r.id}','rejected')">✗ 驳回</button>`:''}
       <button class="btn btn-secondary" style="font-size:13px;padding:7px 16px" onclick="closeDetail()">关闭</button>
@@ -2067,44 +2158,6 @@ function showToast(msg){const t=document.getElementById('toast');t.textContent=m
 // INIT
 // ══════════════════════════════════════════════════════
 loadAll();
-</script>
-<script>
-// ── PWA Service Worker 注册 ──────────────────────────
-if('serviceWorker' in navigator){
-  window.addEventListener('load', ()=>{
-    navigator.serviceWorker.register('sw.js')
-      .then(reg=>{
-        console.log('SW registered:', reg.scope);
-        // 检测新版本
-        reg.addEventListener('updatefound', ()=>{
-          const newWorker = reg.installing;
-          newWorker.addEventListener('statechange', ()=>{
-            if(newWorker.state==='installed' && navigator.serviceWorker.controller){
-              showToast('系统有新版本，刷新后生效');
-            }
-          });
-        });
-      })
-      .catch(e=>console.log('SW registration failed:', e));
-  });
-}
-
-// ── PWA 安装提示 ─────────────────────────────────────
-let deferredPrompt = null;
-window.addEventListener('beforeinstallprompt', e=>{
-  e.preventDefault();
-  deferredPrompt = e;
-  // 登录成功后显示安装提示
-  setTimeout(()=>{
-    if(deferredPrompt && currentUser){
-      showToast('💡 可添加到主屏幕，像 App 一样使用');
-    }
-  }, 3000);
-});
-window.addEventListener('appinstalled', ()=>{
-  deferredPrompt = null;
-  showToast('✅ 已添加到主屏幕');
-});
 </script>
 </body>
 </html>
