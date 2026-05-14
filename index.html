@@ -191,6 +191,8 @@ body{font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;background:#F2
   .toast{bottom:72px}
   .modal-overlay{align-items:flex-end}
   .btn{padding:10px 16px;font-size:13px}
+  #my-records-desktop{display:none!important}
+  #my-records-mobile{display:block!important}
 }
 @media(min-width:641px){
   .bottom-nav{display:none!important}
@@ -198,7 +200,21 @@ body{font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;background:#F2
   .modal-sheet{border-radius:16px;margin:1rem;max-height:85vh}
   .modal-handle{display:none}
   body{padding-bottom:0}
+  #my-records-desktop{display:block!important}
+  #my-records-mobile{display:none!important}
 }
+.rec-card{background:#F8F9FB;border-radius:12px;padding:12px 14px;margin-bottom:10px;cursor:pointer;border:1px solid #EBEBEB;transition:background .15s;-webkit-tap-highlight-color:rgba(74,144,226,.15)}
+.rec-card:active{background:#EBF5FB}
+.rec-card-top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:6px}
+.rec-card-title{font-size:14px;font-weight:700;color:#1a1a1a}
+.rec-card-sub{font-size:11px;color:#aaa;margin-top:1px}
+.rec-card-mid{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.rec-card-amount{font-size:18px;font-weight:700;color:#1a1a1a}
+.rec-card-date{font-size:12px;color:#999}
+.rec-card-log{font-size:12px;color:#555;background:#fff;border-radius:8px;padding:7px 10px;border-left:3px solid #E0E0E0;margin-bottom:8px;line-height:1.6}
+.rec-card-log.approved{border-left-color:#27AE60;background:#EAFAF1}
+.rec-card-log.rejected{border-left-color:#E74C3C;background:#FDEDEC}
+.rec-card-actions{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
 </style>
 </head>
 <body>
@@ -464,11 +480,13 @@ body{font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;background:#F2
           </button>
         </div>
       </div>
-      <div style="overflow-x:auto">
+      <div id="my-records-desktop" style="overflow-x:auto">
         <table class="record-table"><thead><tr>
           <th>编号</th><th>类型</th><th>事由</th><th>金额</th><th>日期</th><th>附件</th><th>状态</th><th>审批信息</th><th>操作</th>
         </tr></thead><tbody id="my-records-body"></tbody></table>
       </div>
+      <!-- 手机端卡片列表 -->
+      <div id="my-records-mobile"></div>
       <div id="my-records-empty" class="empty-state" style="display:none">暂无申请记录，点击「新建申请」开始填写</div>
     </div>
   </div>
@@ -1613,12 +1631,18 @@ function renderMyRecords(){
   if(!currentUser)return;
   const st=document.getElementById('filter-status').value;
   const mine=records.filter(r=>r.submittedBy===currentUser.id&&(!st||r.status===st));
-  const tb=document.getElementById('my-records-body'),empty=document.getElementById('my-records-empty');
-  tb.innerHTML='';if(!mine.length){empty.style.display='block';return;}empty.style.display='none';
+  const tb=document.getElementById('my-records-body');
+  const mb=document.getElementById('my-records-mobile');
+  const empty=document.getElementById('my-records-empty');
+  tb.innerHTML='';mb.innerHTML='';
+  if(!mine.length){empty.style.display='block';return;}empty.style.display='none';
+
   mine.forEach(r=>{
     const bc={pending:'badge-pending',approved:'badge-approved',rejected:'badge-rejected',draft:'badge-draft'}[r.status]||'badge-draft';
     const log=r.approvalLog&&r.approvalLog.length?r.approvalLog.filter(l=>l.action!=='resubmit').slice(-1)[0]:null;
     const logHtml=log?`<div class="approval-log ${log.action}"><strong>${log.action==='approved'?'✓ 批准':'✗ 驳回'}</strong> · ${log.approverName} · ${log.time}${log.comment?'<br><span style="color:#888">'+log.comment+'</span>':''}</div>`:'<span style="font-size:12px;color:#ccc">—</span>';
+
+    // ── Desktop table row ──
     const tr=document.createElement('tr');
     tr.style.cursor='pointer';
     tr.title='点击查看明细';
@@ -1636,6 +1660,35 @@ function renderMyRecords(){
         ${r.status!=='pending'?`<button style="font-size:11px;padding:5px 9px;background:#fff;color:#aaa;border:1px solid #E8E8E8;border-radius:6px;cursor:pointer;font-family:inherit" onclick="event.stopPropagation();deleteMyRecord('${r.id}')">删除</button>`:''}
       </td>`;
     tb.appendChild(tr);
+
+    // ── Mobile card ──
+    const logCardHtml=log
+      ?`<div class="rec-card-log ${log.action}"><strong>${log.action==='approved'?'✓ 批准':'✗ 驳回'}</strong> · ${log.approverName} · ${log.time}${log.comment?'<br>'+log.comment:''}</div>`
+      :'';
+    const card=document.createElement('div');
+    card.className='rec-card';
+    card.onclick=()=>showDetail(r.id);
+    card.innerHTML=`
+      <div class="rec-card-top">
+        <div>
+          <div class="rec-card-title">${r.type} · ${r.reason&&r.reason.length>16?r.reason.slice(0,16)+'…':r.reason}</div>
+          <div class="rec-card-sub">${r.id}</div>
+        </div>
+        <span class="badge ${bc}">${STATUS_LABEL[r.status]}</span>
+      </div>
+      <div class="rec-card-mid">
+        <span class="rec-card-amount">${r.amount}</span>
+        <span class="rec-card-date">${r.date}</span>
+      </div>
+      ${attachBadge(r)!=='<span style="color:#ccc;font-size:12px">无</span>'?`<div style="margin-bottom:6px">${attachBadge(r)}</div>`:''}
+      ${logCardHtml}
+      <div class="rec-card-actions">
+        <button class="btn-resubmit" style="background:#2C3E50;color:#fff;font-size:13px;padding:8px 16px" onclick="event.stopPropagation();showDetail('${r.id}')">📋 查看明细</button>
+        ${r.status==='draft'?`<button class="btn-resubmit" style="background:#EBF5FB;color:#1A5276;font-size:13px;padding:8px 14px" onclick="event.stopPropagation();editDraft('${r.id}')">✏️ 编辑</button><button class="btn-resubmit" style="background:#EAFAF1;color:#1E8449;font-size:13px;padding:8px 14px" onclick="event.stopPropagation();submitDraft('${r.id}')">🚀 提交</button>`:''}
+        ${r.status==='rejected'?`<button class="btn-resubmit" style="background:#EBF5FB;color:#1A5276;font-size:13px;padding:8px 14px" onclick="event.stopPropagation();editRejected('${r.id}')">✏️ 修改后提交</button>`:''}
+        ${r.status!=='pending'?`<button style="font-size:12px;padding:7px 12px;background:#fff;color:#bbb;border:1px solid #E8E8E8;border-radius:7px;cursor:pointer;font-family:inherit" onclick="event.stopPropagation();deleteMyRecord('${r.id}')">删除</button>`:''}
+      </div>`;
+    mb.appendChild(card);
   });
 }
 function submitDraft(id){const r=records.find(r=>r.id===id);if(r){r.status='pending';r.submitTime=new Date().toLocaleString('zh-CN');fbSaveRec(r);saveRecords();updateMetrics();renderMyRecords();showToast('已提交审批');}}
