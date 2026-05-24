@@ -1534,10 +1534,11 @@ function submitForm(isDraft){
   fbSaveRec(newRec);
   fbSaveFormState(newRec.id, newRec.formState);
   saveRecords();updateMetrics();
-  if(isDraft&&!fbReady){
-    showToast('⚠️ 草稿已保存到本地（离线），请联网后刷新同步');
+  if(isDraft){
+    _editingDraftId=newRec.id; // 下次保存草稿时覆盖这条，不新建
+    showToast(fbReady?'✅ 草稿已保存':'⚠️ 草稿已保存到本地（离线），请联网后刷新同步');
   } else {
-    showToast(isDraft?'✅ 草稿已保存':'已提交审批，编号 '+id);
+    showToast('已提交审批，编号 '+id);
   }
   if(!isDraft){_formLocked=false;_editingDraftId=null;clearForm();}
   else{_formLocked=false;}
