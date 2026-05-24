@@ -800,6 +800,7 @@ async function fbSetCfg(patch){
 
 // ── Real-time listener ────────────────────────────────
 let _formLocked = false; // true when user is editing, block form resets from snapshot
+let _editingDraftId = null; // ID of draft being edited, to overwrite instead of create new
 
 function startLive(){
   if(!fbReady||!db||recordsUnsubscribe) return;
@@ -891,14 +892,8 @@ function _fallbackLoad(){
   OVERSEAS_ALLOWANCE=lsGet('expense:overseas_allowance',500);
   const statusEl=document.getElementById('storage-status');
   const dotEl=document.getElementById('storage-dot');
-  if(statusEl) statusEl.innerHTML='<strong style="color:#E24B4A">⚠️ 离线模式 — 数据仅保存在本地！</strong> 保存草稿前请先确认网络连接正常';
-  if(dotEl){dotEl.style.background='#E24B4A';dotEl.style.width='10px';dotEl.style.height='10px';}
-  // Show a prominent banner on the form page
-  setTimeout(()=>{
-    if(!fbReady&&currentUser){
-      showToast('⚠️ 网络离线，草稿暂时只存本地，请联网后刷新');
-    }
-  },2000);
+  if(statusEl) statusEl.textContent='⚠️ 离线模式（仅本地存储）';
+  if(dotEl) dotEl.style.background='#E67E22';
 }
 
 function saveUsers(){lsSet('expense:users',USERS); fbSetCfg({users:USERS}); buildLoginSelects();}
@@ -1458,9 +1453,8 @@ async function editDraft(id){
       currentAttachments=r.attachments?[...r.attachments]:[];
       renderAttachList();
       _formLocked=true;
-      fbDelRec(id);
-      records=records.filter(rec=>rec.id!==id);
-      saveRecords();updateMetrics();
+      _editingDraftId=id;  // 记住正在编辑的草稿ID
+      // 不立即删除，等用户保存/提交时再删
       showPage('new','new');
       window.scrollTo(0,0);
       showToast('草稿已加载，修改后重新保存或提交');
@@ -1479,9 +1473,7 @@ async function editDraft(id){
     currentAttachments=r.attachments?[...r.attachments]:[];
     renderAttachList();
     _formLocked=true;
-    fbDelRec(id);
-    records=records.filter(rec=>rec.id!==id);
-    saveRecords();updateMetrics();
+    _editingDraftId=id;  // 记住正在编辑的草稿ID
     showPage('new','new');
     window.scrollTo(0,0);
     showToast('⚠ 旧草稿已恢复基本信息，请重新填写费用明细');
@@ -1490,37 +1482,16 @@ async function editDraft(id){
 function submitForm(isDraft){
   const reason=document.getElementById('exp-reason').value.trim();
   if(!isDraft&&!reason){showToast('请填写费用事由');return;}
-
-  // ── Firebase 离线警告 ────────────────────────────
-  if(!fbReady){
-    if(isDraft){
-      // 草稿：强提示，让用户决定是否继续
-      const go=confirm(
-        '⚠️ 当前未连接云端（Firebase 离线）\n\n' +
-        '草稿将只保存在本地浏览器，如果：\n' +
-        '  • 清除浏览器缓存\n' +
-        '  • 换设备或换浏览器打开\n' +
-        '  • 浏览器自动清理存储\n\n' +
-        '草稿数据将会丢失！\n\n' +
-        '建议：等待网络恢复后再保存。\n\n' +
-        '是否仍要继续保存到本地？'
-      );
-      if(!go)return;
-    } else {
-      // 正式提交：必须联网
-      alert(
-        '⚠️ 当前未连接云端（Firebase 离线）\n\n' +
-        '正式提交需要网络连接，请：\n' +
-        '1. 检查网络是否正常\n' +
-        '2. 刷新页面等待云端连接\n' +
-        '3. 顶部状态栏显示「☁️ Firebase 云端同步」后再提交'
-      );
-      return;
-    }
-  }
-
   const typeVal=document.getElementById('exp-type').value,rawAmount=getCurrentAmount();
   const formalCount=records.filter(r=>r.status!=='draft'&&r.submittedBy===currentUser.id).length+1;
+
+  // 如果是在编辑已有草稿，先删掉旧的再存新的（覆盖）
+  if(_editingDraftId){
+    fbDelRec(_editingDraftId);
+    records=records.filter(r=>r.id!==_editingDraftId);
+    _editingDraftId=null;
+  }
+
   const id=isDraft?('DRAFT-'+Date.now()):('EXP-'+currentUser.id+'-'+new Date().getFullYear()+'-'+String(formalCount).padStart(3,'0'));
   records.unshift({
     id,submittedBy:currentUser.id,name:currentUser.name,dept:currentUser.dept||'',
@@ -1538,51 +1509,13 @@ function submitForm(isDraft){
   fbSaveRec(newRec);
   fbSaveFormState(newRec.id, newRec.formState);
   saveRecords();updateMetrics();
-  if(isDraft&&!fbReady){
-    showToast('⚠️ 草稿已保存到本地（离线），请尽快联网同步');
-  } else {
-    showToast(isDraft?'✅ 草稿已保存到云端':'已提交审批，编号 '+id);
-  }
-  if(!isDraft){_formLocked=false;clearForm();}
+  showToast(isDraft?'草稿已保存':'已提交审批，编号 '+id);
+  if(!isDraft){_formLocked=false;_editingDraftId=null;clearForm();}
   else{_formLocked=false;}
 }
 function saveDraft(){submitForm(true);}
-
-// ── 离线状态定期检查，更新顶部提示颜色 ────────────────
-function updateOfflineIndicator(){
-  const bar=document.getElementById('storage-status');
-  const dot=document.getElementById('storage-dot');
-  if(!bar||!dot)return;
-  if(!fbReady){
-    dot.style.background='#E24B4A';
-    if(!bar.textContent.includes('离线'))
-      bar.textContent='⚠️ 离线模式 — 数据仅保存在本地，请检查网络连接';
-  }
-}
-setInterval(updateOfflineIndicator, 5000);
-
-// ── 页面关闭/刷新前警告（有填写内容时）──────────────
-function hasFormContent(){
-  const reason=document.getElementById('exp-reason')?.value?.trim();
-  if(reason)return true;
-  const bodies=['daily-body','travel-body','overseas-body','car-body'];
-  for(const id of bodies){
-    const b=document.getElementById(id);
-    if(b&&b.querySelectorAll('input[type=number]').length){
-      const vals=[...b.querySelectorAll('input[type=number]')].some(i=>parseFloat(i.value)>0);
-      if(vals)return true;
-    }
-  }
-  return false;
-}
-window.addEventListener('beforeunload', e=>{
-  if(currentUser&&hasFormContent()){
-    e.preventDefault();
-    e.returnValue='您有未保存的报销内容，确定要离开吗？';
-    return e.returnValue;
-  }
-});
 function clearForm(){
+  _editingDraftId=null;
   document.getElementById('exp-reason').value='';document.getElementById('remark').value='';
   ['travel-from','travel-to','os-dest','car-company','car-model'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   ['daily','travel','overseas','car'].forEach(t=>{const b=document.getElementById(t+'-body');if(b)b.innerHTML='';});
