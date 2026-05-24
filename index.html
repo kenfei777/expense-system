@@ -753,15 +753,22 @@ async function fbLoadAtts(atts){
 
 function stripRec(rec){
   const r=JSON.parse(JSON.stringify(rec));
+  // 附件只保留元数据，不存 base64
   if(r.attachments) r.attachments=r.attachments.map(a=>({id:a.id||'',name:a.name||'',type:a.type||'',size:a.size||0}));
-  // formState 保留在记录里，同时存本地缓存
-  if(r.formState) lsSet('expense:fs:'+r.id, r.formState);
+  // formState 单独存到 expense_formstates 集合，主记录里只保留标记
+  if(r.formState){
+    lsSet('expense:fs:'+r.id, r.formState); // 本地缓存
+    r._hasFormState=true;
+    delete r.formState; // 从主记录移除，避免超过 Firebase 1MB 限制
+  }
   return r;
 }
 function hydrateRec(rec){
+  // 从本地缓存恢复 formState
+  if(!rec.formState && rec._hasFormState){
+    rec.formState=lsGet('expense:fs:'+rec.id, null);
+  }
   if(rec.attachments) rec.attachments=rec.attachments.map(loadAttLocal);
-  // 如果 Firebase 记录里没有 formState（旧版代码驳回导致），从独立集合补取
-  if(!rec.formState && rec._hasFormState) delete rec._hasFormState;
   return rec;
 }
 
@@ -1051,6 +1058,7 @@ async function doLogin(){
     document.getElementById('export-zip-btn').style.display='flex';
     showPage('approve','approve');
   } else {
+    // 只有新建表单时才加默认行，编辑草稿时由 editDraft 处理
     addRow('daily');
     showPage('new','new');
   }
@@ -1361,6 +1369,9 @@ function captureFormState(){
         row.amount=cells[3]?.querySelector('input[type=number]')?.value||'';
         row.receipt=cells[4]?.querySelector('select')?.value||'';
       }
+      // 过滤空行：类别、说明、金额都空才跳过
+      const hasContent=(row.desc&&row.desc.trim())||parseFloat(row.amount)>0||parseFloat(row.foreign)>0||parseFloat(row.cny)>0||(row.isHotel&&row.checkin);
+      if(!hasContent)return;
       state.rows[t].push(row);
     });
   });
@@ -1369,7 +1380,7 @@ function captureFormState(){
 
 function restoreFormState(state){
   if(!state)return;
-  clearForm();
+  clearForm(false); // 不加默认空行，下面从 formState 恢复行
   // Set type first
   const typeEl=document.getElementById('exp-type');
   if(typeEl){typeEl.value=state.type||'daily';switchType();}
@@ -1457,9 +1468,14 @@ function restoreFormState(state){
     });
   });
   // Call calcOverseasTotal once after ALL rows are restored
-  // so that ci.value (direct CNY) is not overwritten prematurely
   if(state.rows&&state.rows.overseas&&state.rows.overseas.length){
     calcOverseasTotal();
+  }
+  // 如果当前类型没有明细行，加一个默认空行（防止表格完全空白）
+  const curType=document.getElementById('exp-type').value;
+  const curBody=document.getElementById(curType+'-body');
+  if(curBody&&!curBody.querySelectorAll('tr').length){
+    addRow(curType);
   }
 }
 
@@ -1560,7 +1576,7 @@ function submitForm(isDraft){
   else{_formLocked=false;}
 }
 function saveDraft(){submitForm(true);}
-function clearForm(){
+function clearForm(addDefaultRow=true){
   _editingDraftId=null;
   document.getElementById('exp-reason').value='';document.getElementById('remark').value='';
   ['travel-from','travel-to','os-dest','car-company','car-model'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
@@ -1569,7 +1585,8 @@ function clearForm(){
   document.getElementById('travel-days').textContent='—';document.getElementById('travel-subsidy').textContent='¥0';
   document.getElementById('os-days-display').textContent='—';document.getElementById('os-subsidy').textContent='¥0';
   document.getElementById('car-subtotal').value='';
-  document.getElementById('exp-type').value='daily';switchType();addRow('daily');
+  document.getElementById('exp-type').value='daily';switchType();
+  if(addDefaultRow)addRow('daily');
   currentAttachments=[];renderAttachList();
 }
 
