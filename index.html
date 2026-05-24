@@ -811,7 +811,12 @@ async function fbSetCfg(patch){
 
 // ── Real-time listener ────────────────────────────────
 let _formLocked = false; // true when user is editing
-let _editingDraftId = null; // ID of draft being edited, to overwrite instead of create new, block form resets from snapshot
+let _editingDraftId = sessionStorage.getItem('expense:editingDraftId')||null;
+function setEditingDraftId(id){
+  _editingDraftId=id;
+  if(id)sessionStorage.setItem('expense:editingDraftId',id);
+  else sessionStorage.removeItem('expense:editingDraftId');
+}
 
 function startLive(){
   if(!fbReady||!db||recordsUnsubscribe) return;
@@ -1495,7 +1500,7 @@ async function editDraft(id){
       currentAttachments=r.attachments?[...r.attachments]:[];
       renderAttachList();
       _formLocked=true;
-      _editingDraftId=id; // 记住草稿ID，保存时覆盖而不是新建
+      setEditingDraftId(id); // 记住草稿ID，保存时覆盖而不是新建
       showPage('new','new');
       window.scrollTo(0,0);
       showToast('草稿已加载，修改后重新保存或提交');
@@ -1514,7 +1519,7 @@ async function editDraft(id){
     currentAttachments=r.attachments?[...r.attachments]:[];
     renderAttachList();
     _formLocked=true;
-    _editingDraftId=id; // 记住草稿ID
+    setEditingDraftId(id); // 记住草稿ID
     showPage('new','new');
     window.scrollTo(0,0);
     showToast('⚠ 旧草稿已恢复基本信息，请重新填写费用明细');
@@ -1546,7 +1551,7 @@ function submitForm(isDraft){
   if(_editingDraftId){
     fbDelRec(_editingDraftId);
     records=records.filter(r=>r.id!==_editingDraftId);
-    _editingDraftId=null;
+    setEditingDraftId(null);
   }
 
   const id=isDraft?('DRAFT-'+Date.now()):('EXP-'+currentUser.id+'-'+new Date().getFullYear()+'-'+String(formalCount).padStart(3,'0'));
@@ -1567,17 +1572,17 @@ function submitForm(isDraft){
   fbSaveFormState(newRec.id, newRec.formState);
   saveRecords();updateMetrics();
   if(isDraft){
-    _editingDraftId=newRec.id; // 下次保存草稿时覆盖这条，不新建
+    setEditingDraftId(newRec.id); // 下次保存草稿时覆盖这条，不新建
     showToast(fbReady?'✅ 草稿已保存':'⚠️ 草稿已保存到本地（离线），请联网后刷新同步');
   } else {
     showToast('已提交审批，编号 '+id);
   }
-  if(!isDraft){_formLocked=false;_editingDraftId=null;clearForm();}
+  if(!isDraft){_formLocked=false;setEditingDraftId(null);clearForm();}
   else{_formLocked=false;}
 }
 function saveDraft(){submitForm(true);}
 function clearForm(addDefaultRow=true){
-  _editingDraftId=null;
+  setEditingDraftId(null);
   document.getElementById('exp-reason').value='';document.getElementById('remark').value='';
   ['travel-from','travel-to','os-dest','car-company','car-model'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   ['daily','travel','overseas','car'].forEach(t=>{const b=document.getElementById(t+'-body');if(b)b.innerHTML='';});
