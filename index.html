@@ -1581,6 +1581,10 @@ function submitForm(isDraft){
     formState: captureFormState()
   });
   const newRec=records[0];
+  // 同步保存附件到本地缓存（不等 Firebase 异步上传）
+  if(newRec.attachments&&newRec.attachments.length){
+    newRec.attachments.forEach(att=>{if(att.data)saveAttLocal(att);});
+  }
   fbSaveRec(newRec);
   fbSaveFormState(newRec.id, newRec.formState);
   saveRecords();updateMetrics();
