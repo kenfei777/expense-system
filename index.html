@@ -707,7 +707,54 @@ function lsSet(k,v){try{localStorage.setItem(k,JSON.stringify(v));return true;}c
 
 // ── Attachment handling ───────────────────────────────
 // 附件 base64 存 Firebase 独立集合（expense_attachments），每设备可见
-function saveAttLocal(att){if(att?.id&&att?.data) localStorage.setItem('expense:att:'+att.id, att.data);}
+function cleanupLocalStorage(){
+  // 只保留当前记录里用到的附件缓存，删除孤立的旧缓存
+  const usedAttIds=new Set();
+  records.forEach(r=>{
+    if(r.attachments) r.attachments.forEach(a=>{ if(a.id) usedAttIds.add('expense:att:'+a.id); });
+  });
+  // 也检查 currentAttachments
+  if(currentAttachments) currentAttachments.forEach(a=>{ if(a.id) usedAttIds.add('expense:att:'+a.id); });
+
+  const toDelete=[];
+  for(let i=0;i<localStorage.length;i++){
+    const k=localStorage.key(i);
+    if(k&&k.startsWith('expense:att:')&&!usedAttIds.has(k)) toDelete.push(k);
+  }
+  toDelete.forEach(k=>localStorage.removeItem(k));
+  if(toDelete.length>0) console.log('Cleaned up '+toDelete.length+' orphaned attachment caches');
+
+  // 检查剩余空间
+  try{
+    let total=0;
+    for(let k in localStorage) if(Object.prototype.hasOwnProperty.call(localStorage,k)) total+=((localStorage[k]||'').length*2);
+    const mb=(total/1024/1024).toFixed(1);
+    console.log('localStorage after cleanup: '+mb+'MB');
+  }catch(e){}
+}
+  if(!att?.id||!att?.data) return false;
+  try{
+    localStorage.setItem('expense:att:'+att.id, att.data);
+    return true;
+  }catch(e){
+    // localStorage 已满，清理旧的附件缓存再试
+    console.warn('localStorage full, clearing old att cache...');
+    const keysToDelete=[];
+    for(let i=0;i<localStorage.length;i++){
+      const k=localStorage.key(i);
+      if(k&&k.startsWith('expense:att:')) keysToDelete.push(k);
+    }
+    // 删除旧缓存（保留最新的，删除旧的）
+    keysToDelete.slice(0, Math.ceil(keysToDelete.length/2)).forEach(k=>localStorage.removeItem(k));
+    try{
+      localStorage.setItem('expense:att:'+att.id, att.data);
+      return true;
+    }catch(e2){
+      console.warn('saveAttLocal failed even after cleanup:', att.name);
+      return false;
+    }
+  }
+}
 function loadAttLocal(att){if(att?.id&&!att?.data) att.data=localStorage.getItem('expense:att:'+att.id)||null; return att;}
 
 // 存附件到 Firebase（每个附件一个文档，分块存避免超 1MB）
@@ -1074,6 +1121,8 @@ async function doLogin(){
   }
   updateMetrics();updateStorageDisplay();updatePendingBadge();
   syncAllowanceDisplay();
+  // 清理孤立附件缓存，释放 localStorage 空间
+  setTimeout(cleanupLocalStorage, 2000);
 }
 
 function logout(){
