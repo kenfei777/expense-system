@@ -800,7 +800,6 @@ async function fbSetCfg(patch){
 
 // ── Real-time listener ────────────────────────────────
 let _formLocked = false; // true when user is editing, block form resets from snapshot
-let _editingDraftId = null; // ID of draft being edited, to overwrite instead of create new
 
 function startLive(){
   if(!fbReady||!db||recordsUnsubscribe) return;
@@ -1225,10 +1224,12 @@ function calcOverseasTotal(){
     const fi=tr.querySelector('.os-foreign'),ci=tr.querySelector('.os-cny');
     if(!ci)return;
     if(fi&&parseFloat(fi.value)){
+      // Foreign value exists → convert to CNY and display (overwrite ci)
       const cny=(parseFloat(fi.value)||0)*rate;
       ci.value=cny.toFixed(2);
       sum+=cny;
     } else {
+      // No foreign value → use whatever is in ci (direct CNY input), don't overwrite
       sum+=parseFloat(ci.value)||0;
     }
   });
@@ -1334,6 +1335,7 @@ function captureFormState(){
       // amount / foreign amount
       if(t==='overseas'){
         row.foreign=cells[3]?.querySelector('.os-foreign')?.value||'';
+        row.cny=cells[4]?.querySelector('.os-cny')?.value||'';
         const rcptIdx=5;
         row.receipt=cells[rcptIdx]?.querySelector('select')?.value||'';
       } else if(t==='car'){
@@ -1419,9 +1421,11 @@ function restoreFormState(state){
       // amount / receipt
       if(t==='overseas'){
         const fi=tr.querySelector('.os-foreign');if(fi)fi.value=row.foreign||'';
+        const ci=tr.querySelector('.os-cny');if(ci&&row.cny)ci.value=row.cny;
         const rcptSel=tr.querySelectorAll('td')[5]?.querySelector('select');
         if(rcptSel&&row.receipt)rcptSel.value=row.receipt;
-        calcOverseasTotal();
+        // DO NOT call calcOverseasTotal() here — it would overwrite ci.value
+        // we call it once after all rows are restored (below)
       } else if(t==='car'){
         const ai=tr.querySelectorAll('td')[3]?.querySelector('input[type=number]');
         if(ai)ai.value=row.amount||'';
@@ -1435,6 +1439,11 @@ function restoreFormState(state){
       }
     });
   });
+  // Call calcOverseasTotal once after ALL rows are restored
+  // so that ci.value (direct CNY) is not overwritten prematurely
+  if(state.rows&&state.rows.overseas&&state.rows.overseas.length){
+    calcOverseasTotal();
+  }
 }
 
 async function editDraft(id){
@@ -1453,8 +1462,9 @@ async function editDraft(id){
       currentAttachments=r.attachments?[...r.attachments]:[];
       renderAttachList();
       _formLocked=true;
-      _editingDraftId=id;  // 记住正在编辑的草稿ID
-      // 不立即删除，等用户保存/提交时再删
+      fbDelRec(id);
+      records=records.filter(rec=>rec.id!==id);
+      saveRecords();updateMetrics();
       showPage('new','new');
       window.scrollTo(0,0);
       showToast('草稿已加载，修改后重新保存或提交');
@@ -1473,7 +1483,9 @@ async function editDraft(id){
     currentAttachments=r.attachments?[...r.attachments]:[];
     renderAttachList();
     _formLocked=true;
-    _editingDraftId=id;  // 记住正在编辑的草稿ID
+    fbDelRec(id);
+    records=records.filter(rec=>rec.id!==id);
+    saveRecords();updateMetrics();
     showPage('new','new');
     window.scrollTo(0,0);
     showToast('⚠ 旧草稿已恢复基本信息，请重新填写费用明细');
@@ -1484,14 +1496,6 @@ function submitForm(isDraft){
   if(!isDraft&&!reason){showToast('请填写费用事由');return;}
   const typeVal=document.getElementById('exp-type').value,rawAmount=getCurrentAmount();
   const formalCount=records.filter(r=>r.status!=='draft'&&r.submittedBy===currentUser.id).length+1;
-
-  // 如果是在编辑已有草稿，先删掉旧的再存新的（覆盖）
-  if(_editingDraftId){
-    fbDelRec(_editingDraftId);
-    records=records.filter(r=>r.id!==_editingDraftId);
-    _editingDraftId=null;
-  }
-
   const id=isDraft?('DRAFT-'+Date.now()):('EXP-'+currentUser.id+'-'+new Date().getFullYear()+'-'+String(formalCount).padStart(3,'0'));
   records.unshift({
     id,submittedBy:currentUser.id,name:currentUser.name,dept:currentUser.dept||'',
@@ -1510,12 +1514,11 @@ function submitForm(isDraft){
   fbSaveFormState(newRec.id, newRec.formState);
   saveRecords();updateMetrics();
   showToast(isDraft?'草稿已保存':'已提交审批，编号 '+id);
-  if(!isDraft){_formLocked=false;_editingDraftId=null;clearForm();}
+  if(!isDraft){_formLocked=false;clearForm();}
   else{_formLocked=false;}
 }
 function saveDraft(){submitForm(true);}
 function clearForm(){
-  _editingDraftId=null;
   document.getElementById('exp-reason').value='';document.getElementById('remark').value='';
   ['travel-from','travel-to','os-dest','car-company','car-model'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   ['daily','travel','overseas','car'].forEach(t=>{const b=document.getElementById(t+'-body');if(b)b.innerHTML='';});
