@@ -783,9 +783,13 @@ function fid(id){return (id||'').replace(/[.#$/\[\]]/g,'_');}
 // ── Firebase CRUD ─────────────────────────────────────
 async function fbSaveRec(rec){
   if(!fbReady||!db) return;
-  if(rec.attachments&&rec.attachments.length) await fbSaveAtts(rec.attachments);
+  // 先保存主记录（不含附件数据），确保记录先到Firebase
   try{ await db.collection('expense_records').doc(fid(rec.id)).set(stripRec(rec)); }
-  catch(e){ console.warn('fbSaveRec:',e); showToast('云端同步失败，已保存到本地'); }
+  catch(e){ console.warn('fbSaveRec:',e); showToast('云端同步失败，已保存到本地'); return; }
+  // 再异步上传附件（失败不影响主记录）
+  if(rec.attachments&&rec.attachments.length){
+    fbSaveAtts(rec.attachments).catch(e=>console.warn('fbSaveAtts partial fail:',e));
+  }
 }
 async function fbDelRec(id){
   if(!fbReady||!db) return;
@@ -831,6 +835,13 @@ function startLive(){
     }
 
     records=newRecords;
+    // 合并本地草稿：Firebase 可能没有保存成功的草稿（附件过大等原因）
+    const localRecs=lsGet('expense:records',[]);
+    const localDrafts=localRecs.filter(lr=>lr.status==='draft'&&!newRecords.find(nr=>nr.id===lr.id));
+    if(localDrafts.length>0){
+      records=[...newRecords,...localDrafts];
+      records.sort((a,b)=>(b.submitTime||'').localeCompare(a.submitTime||''));
+    }
     lsSet('expense:records',records);
     if(currentUser){
       updateMetrics(); updatePendingBadge(); updateStorageDisplay();
@@ -870,7 +881,12 @@ async function loadAll(){
         await fbSetCfg({users:USERS,rates:DEFAULT_RATES,domestic_allowance:200,overseas_allowance:500});
       }
       const recsSnap=await db.collection('expense_records').get();
-      records=recsSnap.docs.map(d=>hydrateRec(d.data()));
+      const fbRecords=recsSnap.docs.map(d=>hydrateRec(d.data()));
+      fbRecords.sort((a,b)=>(b.submitTime||'').localeCompare(a.submitTime||''));
+      // 合并本地草稿（Firebase 可能没有存到）
+      const localRecs=lsGet('expense:records',[]);
+      const localDrafts=localRecs.filter(lr=>lr.status==='draft'&&!fbRecords.find(nr=>nr.id===lr.id));
+      records=[...fbRecords,...localDrafts];
       records.sort((a,b)=>(b.submitTime||'').localeCompare(a.submitTime||''));
       startLive();
       if(statusEl) statusEl.textContent='☁️ Firebase 云端同步已连接';
