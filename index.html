@@ -1552,15 +1552,18 @@ function submitForm(isDraft){
   const typeVal=document.getElementById('exp-type').value,rawAmount=getCurrentAmount();
   const formalCount=records.filter(r=>r.status!=='draft'&&r.submittedBy===currentUser.id).length+1;
 
-  // 保存草稿时：找到该用户所有现有草稿，全部删掉再新建一条
-  // 这样无论 _editingDraftId 是否有效，都不会重复
+  // 保存草稿时：删除该用户所有现有草稿（多条件匹配，防止旧格式遗留）
   if(isDraft){
-    const existingDrafts=records.filter(r=>r.submittedBy===currentUser.id&&r.status==='draft');
-    existingDrafts.forEach(d=>{
-      fbDelRec(d.id);
-      fbDelFormState(d.id);
-    });
-    records=records.filter(r=>!(r.submittedBy===currentUser.id&&r.status==='draft'));
+    const existingDrafts=records.filter(r=>
+      r.status==='draft' && (
+        r.submittedBy===currentUser.id ||
+        r.submittedBy===currentUser.name ||
+        r.name===currentUser.name ||
+        (r.id&&r.id.startsWith('DRAFT-'))
+      )
+    );
+    existingDrafts.forEach(d=>{ fbDelRec(d.id); fbDelFormState(d.id); });
+    records=records.filter(r=>!existingDrafts.find(d=>d.id===r.id));
     setEditingDraftId(null);
   }
 
