@@ -798,6 +798,11 @@ async function fbSaveRec(rec){
     fbSaveAtts(rec.attachments).catch(e=>console.warn('fbSaveAtts partial fail:',e));
   }
 }
+async function fbDelFormState(id){
+  if(!fbReady||!db) return;
+  try{ await db.collection('expense_formstates').doc(fid(id)).delete(); }
+  catch(e){ console.warn('fbDelFormState:',e); }
+}
 async function fbDelRec(id){
   if(!fbReady||!db) return;
   try{ await db.collection('expense_records').doc(fid(id)).delete(); }
@@ -1547,14 +1552,19 @@ function submitForm(isDraft){
   const typeVal=document.getElementById('exp-type').value,rawAmount=getCurrentAmount();
   const formalCount=records.filter(r=>r.status!=='draft'&&r.submittedBy===currentUser.id).length+1;
 
-  // 覆盖已有草稿（不新建）
-  if(_editingDraftId){
-    fbDelRec(_editingDraftId);
-    records=records.filter(r=>r.id!==_editingDraftId);
+  // 保存草稿时：找到该用户所有现有草稿，全部删掉再新建一条
+  // 这样无论 _editingDraftId 是否有效，都不会重复
+  if(isDraft){
+    const existingDrafts=records.filter(r=>r.submittedBy===currentUser.id&&r.status==='draft');
+    existingDrafts.forEach(d=>{
+      fbDelRec(d.id);
+      fbDelFormState(d.id);
+    });
+    records=records.filter(r=>!(r.submittedBy===currentUser.id&&r.status==='draft'));
     setEditingDraftId(null);
   }
 
-  const id=isDraft?('DRAFT-'+Date.now()):('EXP-'+currentUser.id+'-'+new Date().getFullYear()+'-'+String(formalCount).padStart(3,'0'));
+  const id=isDraft?('DRAFT-'+currentUser.id):('EXP-'+currentUser.id+'-'+new Date().getFullYear()+'-'+String(formalCount).padStart(3,'0'));
   records.unshift({
     id,submittedBy:currentUser.id,name:currentUser.name,dept:currentUser.dept||'',
     type:TYPE_MAP[typeVal],reason:reason||'（草稿）',rawAmount,
@@ -1572,7 +1582,6 @@ function submitForm(isDraft){
   fbSaveFormState(newRec.id, newRec.formState);
   saveRecords();updateMetrics();
   if(isDraft){
-    setEditingDraftId(newRec.id); // 下次保存草稿时覆盖这条，不新建
     showToast(fbReady?'✅ 草稿已保存':'⚠️ 草稿已保存到本地（离线），请联网后刷新同步');
   } else {
     showToast('已提交审批，编号 '+id);
