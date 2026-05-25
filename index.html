@@ -216,10 +216,9 @@ body{font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;background:#F2
       </div>
       <div class="lfield"><label>工号</label>
         <select id="login-id-select" style="display:none"></select>
-        <input type="text" id="login-id" placeholder="输入工号，如 002 或 EMP001"
-          autocorrect="off" autocapitalize="none" autocomplete="username" spellcheck="false"/>
+        <input type="text" id="login-id" placeholder="输入工号"/>
       </div>
-      <div class="lfield"><label>密码</label><input type="password" id="login-pw" placeholder="输入密码" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"/></div>
+      <div class="lfield"><label>密码</label><input type="password" id="login-pw" placeholder="输入密码" onkeydown="if(event.key==='Enter')doLogin()"/></div>
       <div class="login-err" id="login-err"></div>
       <button class="btn-login" onclick="doLogin()">登 录</button>
       <div style="margin-top:14px;font-size:12px;color:#bbb;text-align:center">
@@ -430,7 +429,7 @@ body{font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;background:#F2
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#999" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
           </div>
           <span style="font-size:13px;color:#888">点击上传 或 拖拽文件到此处</span>
-          <span style="font-size:11px;color:#bbb">支持 JPG · PNG · PDF，最多 50 个</span>
+          <span style="font-size:11px;color:#bbb">支持 JPG · PNG · PDF，最多 10 个</span>
         </div>
         <div class="attach-list" id="attach-list"></div>
       </div>
@@ -697,10 +696,7 @@ function initFirebase(){
   try{
     if(!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
     db=firebase.firestore();
-    // 离线缓存：手机多标签或隐私模式下可能失败，忽略错误继续
-    db.enablePersistence({synchronizeTabs:true}).catch(e=>{
-      console.warn('Persistence failed (ok to ignore):', e.code);
-    });
+    db.enablePersistence().catch(()=>{});  // 离线缓存
     fbReady=true; return true;
   }catch(e){ console.warn('Firebase init failed:',e); fbReady=false; return false; }
 }
@@ -711,54 +707,7 @@ function lsSet(k,v){try{localStorage.setItem(k,JSON.stringify(v));return true;}c
 
 // ── Attachment handling ───────────────────────────────
 // 附件 base64 存 Firebase 独立集合（expense_attachments），每设备可见
-function cleanupLocalStorage(){
-  // 只保留当前记录里用到的附件缓存，删除孤立的旧缓存
-  const usedAttIds=new Set();
-  records.forEach(r=>{
-    if(r.attachments) r.attachments.forEach(a=>{ if(a.id) usedAttIds.add('expense:att:'+a.id); });
-  });
-  // 也检查 currentAttachments
-  if(currentAttachments) currentAttachments.forEach(a=>{ if(a.id) usedAttIds.add('expense:att:'+a.id); });
-
-  const toDelete=[];
-  for(let i=0;i<localStorage.length;i++){
-    const k=localStorage.key(i);
-    if(k&&k.startsWith('expense:att:')&&!usedAttIds.has(k)) toDelete.push(k);
-  }
-  toDelete.forEach(k=>localStorage.removeItem(k));
-  if(toDelete.length>0) console.log('Cleaned up '+toDelete.length+' orphaned attachment caches');
-
-  // 检查剩余空间
-  try{
-    let total=0;
-    for(let k in localStorage) if(Object.prototype.hasOwnProperty.call(localStorage,k)) total+=((localStorage[k]||'').length*2);
-    const mb=(total/1024/1024).toFixed(1);
-    console.log('localStorage after cleanup: '+mb+'MB');
-  }catch(e){}
-}
-  if(!att?.id||!att?.data) return false;
-  try{
-    localStorage.setItem('expense:att:'+att.id, att.data);
-    return true;
-  }catch(e){
-    // localStorage 已满，清理旧的附件缓存再试
-    console.warn('localStorage full, clearing old att cache...');
-    const keysToDelete=[];
-    for(let i=0;i<localStorage.length;i++){
-      const k=localStorage.key(i);
-      if(k&&k.startsWith('expense:att:')) keysToDelete.push(k);
-    }
-    // 删除旧缓存（保留最新的，删除旧的）
-    keysToDelete.slice(0, Math.ceil(keysToDelete.length/2)).forEach(k=>localStorage.removeItem(k));
-    try{
-      localStorage.setItem('expense:att:'+att.id, att.data);
-      return true;
-    }catch(e2){
-      console.warn('saveAttLocal failed even after cleanup:', att.name);
-      return false;
-    }
-  }
-}
+function saveAttLocal(att){if(att?.id&&att?.data) localStorage.setItem('expense:att:'+att.id, att.data);}
 function loadAttLocal(att){if(att?.id&&!att?.data) att.data=localStorage.getItem('expense:att:'+att.id)||null; return att;}
 
 // 存附件到 Firebase（每个附件一个文档，分块存避免超 1MB）
@@ -804,22 +753,15 @@ async function fbLoadAtts(atts){
 
 function stripRec(rec){
   const r=JSON.parse(JSON.stringify(rec));
-  // 附件只保留元数据，不存 base64
   if(r.attachments) r.attachments=r.attachments.map(a=>({id:a.id||'',name:a.name||'',type:a.type||'',size:a.size||0}));
-  // formState 单独存到 expense_formstates 集合，主记录里只保留标记
-  if(r.formState){
-    lsSet('expense:fs:'+r.id, r.formState); // 本地缓存
-    r._hasFormState=true;
-    delete r.formState; // 从主记录移除，避免超过 Firebase 1MB 限制
-  }
+  // formState 保留在记录里，同时存本地缓存
+  if(r.formState) lsSet('expense:fs:'+r.id, r.formState);
   return r;
 }
 function hydrateRec(rec){
-  // 从本地缓存恢复 formState
-  if(!rec.formState && rec._hasFormState){
-    rec.formState=lsGet('expense:fs:'+rec.id, null);
-  }
   if(rec.attachments) rec.attachments=rec.attachments.map(loadAttLocal);
+  // 如果 Firebase 记录里没有 formState（旧版代码驳回导致），从独立集合补取
+  if(!rec.formState && rec._hasFormState) delete rec._hasFormState;
   return rec;
 }
 
@@ -841,18 +783,9 @@ function fid(id){return (id||'').replace(/[.#$/\[\]]/g,'_');}
 // ── Firebase CRUD ─────────────────────────────────────
 async function fbSaveRec(rec){
   if(!fbReady||!db) return;
-  // 先保存主记录（不含附件数据），确保记录先到Firebase
+  if(rec.attachments&&rec.attachments.length) await fbSaveAtts(rec.attachments);
   try{ await db.collection('expense_records').doc(fid(rec.id)).set(stripRec(rec)); }
-  catch(e){ console.warn('fbSaveRec:',e); showToast('云端同步失败，已保存到本地'); return; }
-  // 再异步上传附件（失败不影响主记录）
-  if(rec.attachments&&rec.attachments.length){
-    fbSaveAtts(rec.attachments).catch(e=>console.warn('fbSaveAtts partial fail:',e));
-  }
-}
-async function fbDelFormState(id){
-  if(!fbReady||!db) return;
-  try{ await db.collection('expense_formstates').doc(fid(id)).delete(); }
-  catch(e){ console.warn('fbDelFormState:',e); }
+  catch(e){ console.warn('fbSaveRec:',e); showToast('云端同步失败，已保存到本地'); }
 }
 async function fbDelRec(id){
   if(!fbReady||!db) return;
@@ -866,13 +799,7 @@ async function fbSetCfg(patch){
 }
 
 // ── Real-time listener ────────────────────────────────
-let _formLocked = false; // true when user is editing
-let _editingDraftId = sessionStorage.getItem('expense:editingDraftId')||null;
-function setEditingDraftId(id){
-  _editingDraftId=id;
-  if(id)sessionStorage.setItem('expense:editingDraftId',id);
-  else sessionStorage.removeItem('expense:editingDraftId');
-}
+let _formLocked = false; // true when user is editing, block form resets from snapshot
 
 function startLive(){
   if(!fbReady||!db||recordsUnsubscribe) return;
@@ -903,13 +830,6 @@ function startLive(){
     }
 
     records=newRecords;
-    // 合并本地草稿：Firebase 可能没有保存成功的草稿（附件过大等原因）
-    const localRecs=lsGet('expense:records',[]);
-    const localDrafts=localRecs.filter(lr=>lr.status==='draft'&&!newRecords.find(nr=>nr.id===lr.id));
-    if(localDrafts.length>0){
-      records=[...newRecords,...localDrafts];
-      records.sort((a,b)=>(b.submitTime||'').localeCompare(a.submitTime||''));
-    }
     lsSet('expense:records',records);
     if(currentUser){
       updateMetrics(); updatePendingBadge(); updateStorageDisplay();
@@ -949,12 +869,7 @@ async function loadAll(){
         await fbSetCfg({users:USERS,rates:DEFAULT_RATES,domestic_allowance:200,overseas_allowance:500});
       }
       const recsSnap=await db.collection('expense_records').get();
-      const fbRecords=recsSnap.docs.map(d=>hydrateRec(d.data()));
-      fbRecords.sort((a,b)=>(b.submitTime||'').localeCompare(a.submitTime||''));
-      // 合并本地草稿（Firebase 可能没有存到）
-      const localRecs=lsGet('expense:records',[]);
-      const localDrafts=localRecs.filter(lr=>lr.status==='draft'&&!fbRecords.find(nr=>nr.id===lr.id));
-      records=[...fbRecords,...localDrafts];
+      records=recsSnap.docs.map(d=>hydrateRec(d.data()));
       records.sort((a,b)=>(b.submitTime||'').localeCompare(a.submitTime||''));
       startLive();
       if(statusEl) statusEl.textContent='☁️ Firebase 云端同步已连接';
@@ -1085,13 +1000,20 @@ async function doLogin(){
   const btn=document.querySelector('.btn-login');
   if(!id){err.textContent='请输入工号';return;}
   if(!pw){err.textContent='请输入密码';return;}
+
+  // Show loading state
   err.textContent='';
   if(btn){btn.textContent='登录中...';btn.disabled=true;}
-  if(!fbReady){ await loadAll(); }
+
+  // If Firebase not ready yet, wait for loadAll to complete
+  if(!fbReady){
+    await loadAll();
+  }
+
   if(btn){btn.textContent='登 录';btn.disabled=false;}
+
   const user=USERS[id];
-  if(!user){err.textContent='工号不存在：「'+id+'」';return;}
-  if(user.pw!==pw){err.textContent='密码错误，请重试';return;}
+  if(!user||user.pw!==pw){err.textContent='工号或密码错误，请重试';return;}
   if(user.role!==loginRole){err.textContent='所选身份与账号不符，请切换登录类型';return;}
   currentUser={id,...user};
   document.getElementById('login-screen').style.display='none';
@@ -1112,14 +1034,11 @@ async function doLogin(){
     document.getElementById('export-zip-btn').style.display='flex';
     showPage('approve','approve');
   } else {
-    // 只有新建表单时才加默认行，编辑草稿时由 editDraft 处理
     addRow('daily');
     showPage('new','new');
   }
   updateMetrics();updateStorageDisplay();updatePendingBadge();
   syncAllowanceDisplay();
-  // 清理孤立附件缓存，释放 localStorage 空间
-  setTimeout(cleanupLocalStorage, 2000);
 }
 
 function logout(){
@@ -1305,12 +1224,10 @@ function calcOverseasTotal(){
     const fi=tr.querySelector('.os-foreign'),ci=tr.querySelector('.os-cny');
     if(!ci)return;
     if(fi&&parseFloat(fi.value)){
-      // Foreign value exists → convert to CNY and display (overwrite ci)
       const cny=(parseFloat(fi.value)||0)*rate;
       ci.value=cny.toFixed(2);
       sum+=cny;
     } else {
-      // No foreign value → use whatever is in ci (direct CNY input), don't overwrite
       sum+=parseFloat(ci.value)||0;
     }
   });
@@ -1416,7 +1333,6 @@ function captureFormState(){
       // amount / foreign amount
       if(t==='overseas'){
         row.foreign=cells[3]?.querySelector('.os-foreign')?.value||'';
-        row.cny=cells[4]?.querySelector('.os-cny')?.value||'';
         const rcptIdx=5;
         row.receipt=cells[rcptIdx]?.querySelector('select')?.value||'';
       } else if(t==='car'){
@@ -1425,9 +1341,6 @@ function captureFormState(){
         row.amount=cells[3]?.querySelector('input[type=number]')?.value||'';
         row.receipt=cells[4]?.querySelector('select')?.value||'';
       }
-      // 过滤空行：类别、说明、金额都空才跳过
-      const hasContent=(row.desc&&row.desc.trim())||parseFloat(row.amount)>0||parseFloat(row.foreign)>0||parseFloat(row.cny)>0||(row.isHotel&&row.checkin);
-      if(!hasContent)return;
       state.rows[t].push(row);
     });
   });
@@ -1436,7 +1349,7 @@ function captureFormState(){
 
 function restoreFormState(state){
   if(!state)return;
-  clearForm(false); // 不加默认空行，下面从 formState 恢复行
+  clearForm();
   // Set type first
   const typeEl=document.getElementById('exp-type');
   if(typeEl){typeEl.value=state.type||'daily';switchType();}
@@ -1505,11 +1418,9 @@ function restoreFormState(state){
       // amount / receipt
       if(t==='overseas'){
         const fi=tr.querySelector('.os-foreign');if(fi)fi.value=row.foreign||'';
-        const ci=tr.querySelector('.os-cny');if(ci&&row.cny)ci.value=row.cny;
         const rcptSel=tr.querySelectorAll('td')[5]?.querySelector('select');
         if(rcptSel&&row.receipt)rcptSel.value=row.receipt;
-        // DO NOT call calcOverseasTotal() here — it would overwrite ci.value
-        // we call it once after all rows are restored (below)
+        calcOverseasTotal();
       } else if(t==='car'){
         const ai=tr.querySelectorAll('td')[3]?.querySelector('input[type=number]');
         if(ai)ai.value=row.amount||'';
@@ -1523,16 +1434,6 @@ function restoreFormState(state){
       }
     });
   });
-  // Call calcOverseasTotal once after ALL rows are restored
-  if(state.rows&&state.rows.overseas&&state.rows.overseas.length){
-    calcOverseasTotal();
-  }
-  // 如果当前类型没有明细行，加一个默认空行（防止表格完全空白）
-  const curType=document.getElementById('exp-type').value;
-  const curBody=document.getElementById(curType+'-body');
-  if(curBody&&!curBody.querySelectorAll('tr').length){
-    addRow(curType);
-  }
 }
 
 async function editDraft(id){
@@ -1551,7 +1452,9 @@ async function editDraft(id){
       currentAttachments=r.attachments?[...r.attachments]:[];
       renderAttachList();
       _formLocked=true;
-      setEditingDraftId(id); // 记住草稿ID，保存时覆盖而不是新建
+      fbDelRec(id);
+      records=records.filter(rec=>rec.id!==id);
+      saveRecords();updateMetrics();
       showPage('new','new');
       window.scrollTo(0,0);
       showToast('草稿已加载，修改后重新保存或提交');
@@ -1570,7 +1473,9 @@ async function editDraft(id){
     currentAttachments=r.attachments?[...r.attachments]:[];
     renderAttachList();
     _formLocked=true;
-    setEditingDraftId(id); // 记住草稿ID
+    fbDelRec(id);
+    records=records.filter(rec=>rec.id!==id);
+    saveRecords();updateMetrics();
     showPage('new','new');
     window.scrollTo(0,0);
     showToast('⚠ 旧草稿已恢复基本信息，请重新填写费用明细');
@@ -1579,41 +1484,9 @@ async function editDraft(id){
 function submitForm(isDraft){
   const reason=document.getElementById('exp-reason').value.trim();
   if(!isDraft&&!reason){showToast('请填写费用事由');return;}
-
-  // ── Firebase 离线警告 ──────────────────────────────
-  if(!fbReady){
-    if(isDraft){
-      const go=confirm(
-        '⚠️ 当前未连接云端（Firebase 离线）\n\n'+
-        '草稿将只保存在本地浏览器，如果清除缓存、\n换设备或换浏览器打开，数据将会丢失！\n\n'+
-        '建议等网络恢复后再保存。\n\n是否仍要继续保存到本地？'
-      );
-      if(!go)return;
-    } else {
-      alert('⚠️ 当前未连接云端（Firebase 离线）\n\n正式提交需要网络连接，请检查网络后刷新页面，\n顶部状态栏显示「Firebase 云端同步」后再提交。');
-      return;
-    }
-  }
-
   const typeVal=document.getElementById('exp-type').value,rawAmount=getCurrentAmount();
   const formalCount=records.filter(r=>r.status!=='draft'&&r.submittedBy===currentUser.id).length+1;
-
-  // 保存草稿时：删除该用户所有现有草稿（多条件匹配，防止旧格式遗留）
-  if(isDraft){
-    const existingDrafts=records.filter(r=>
-      r.status==='draft' && (
-        r.submittedBy===currentUser.id ||
-        r.submittedBy===currentUser.name ||
-        r.name===currentUser.name ||
-        (r.id&&r.id.startsWith('DRAFT-'))
-      )
-    );
-    existingDrafts.forEach(d=>{ fbDelRec(d.id); fbDelFormState(d.id); });
-    records=records.filter(r=>!existingDrafts.find(d=>d.id===r.id));
-    setEditingDraftId(null);
-  }
-
-  const id=isDraft?('DRAFT-'+currentUser.id):('EXP-'+currentUser.id+'-'+new Date().getFullYear()+'-'+String(formalCount).padStart(3,'0'));
+  const id=isDraft?('DRAFT-'+Date.now()):('EXP-'+currentUser.id+'-'+new Date().getFullYear()+'-'+String(formalCount).padStart(3,'0'));
   records.unshift({
     id,submittedBy:currentUser.id,name:currentUser.name,dept:currentUser.dept||'',
     type:TYPE_MAP[typeVal],reason:reason||'（草稿）',rawAmount,
@@ -1627,24 +1500,15 @@ function submitForm(isDraft){
     formState: captureFormState()
   });
   const newRec=records[0];
-  // 同步保存附件到本地缓存（不等 Firebase 异步上传）
-  if(newRec.attachments&&newRec.attachments.length){
-    newRec.attachments.forEach(att=>{if(att.data)saveAttLocal(att);});
-  }
   fbSaveRec(newRec);
   fbSaveFormState(newRec.id, newRec.formState);
   saveRecords();updateMetrics();
-  if(isDraft){
-    showToast(fbReady?'✅ 草稿已保存':'⚠️ 草稿已保存到本地（离线），请联网后刷新同步');
-  } else {
-    showToast('已提交审批，编号 '+id);
-  }
-  if(!isDraft){_formLocked=false;setEditingDraftId(null);clearForm();}
+  showToast(isDraft?'草稿已保存':'已提交审批，编号 '+id);
+  if(!isDraft){_formLocked=false;clearForm();}
   else{_formLocked=false;}
 }
 function saveDraft(){submitForm(true);}
-function clearForm(addDefaultRow=true){
-  setEditingDraftId(null);
+function clearForm(){
   document.getElementById('exp-reason').value='';document.getElementById('remark').value='';
   ['travel-from','travel-to','os-dest','car-company','car-model'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   ['daily','travel','overseas','car'].forEach(t=>{const b=document.getElementById(t+'-body');if(b)b.innerHTML='';});
@@ -1652,25 +1516,9 @@ function clearForm(addDefaultRow=true){
   document.getElementById('travel-days').textContent='—';document.getElementById('travel-subsidy').textContent='¥0';
   document.getElementById('os-days-display').textContent='—';document.getElementById('os-subsidy').textContent='¥0';
   document.getElementById('car-subtotal').value='';
-  document.getElementById('exp-type').value='daily';switchType();
-  if(addDefaultRow)addRow('daily');
+  document.getElementById('exp-type').value='daily';switchType();addRow('daily');
   currentAttachments=[];renderAttachList();
 }
-
-// ── 页面关闭/刷新前警告 ────────────────────────────────
-function hasFormContent(){
-  if(document.getElementById('exp-reason')?.value?.trim())return true;
-  for(const t of['daily','travel','overseas','car']){
-    const b=document.getElementById(t+'-body');
-    if(b){const nums=[...b.querySelectorAll('input[type=number]')];if(nums.some(i=>parseFloat(i.value)>0))return true;}
-  }
-  return false;
-}
-window.addEventListener('beforeunload',e=>{
-  if(currentUser&&hasFormContent()){
-    e.preventDefault();e.returnValue='您有未保存的报销内容，确定要离开吗？';return e.returnValue;
-  }
-});
 
 // ══════════════════════════════════════════════════════
 // ATTACHMENTS
@@ -1683,7 +1531,7 @@ function processFiles(files){
   files.forEach(file=>{
     if(!allowed.includes(file.type)){showToast('不支持：'+file.name);return;}
     if(file.size>MAX_FILE){showToast('超过3MB：'+file.name);return;}
-    if(currentAttachments.length>=50){showToast('最多50个附件');return;}
+    if(currentAttachments.length>=10){showToast('最多10个附件');return;}
     const reader=new FileReader();
     reader.onload=e=>{
       currentAttachments.push({id:Date.now()+'_'+Math.random().toString(36).slice(2),name:file.name,type:file.type,size:file.size,data:e.target.result});
