@@ -793,11 +793,28 @@ function hydrateRec(rec){
 }
 
 function recSortValue(r){
-  return r.submitTime || r.date || '';
+  return r.updatedAt || r.submitTime || r.date || '';
 }
 function sortRecords(list){
   list.sort((a,b)=>recSortValue(b).localeCompare(recSortValue(a)));
   return list;
+}
+function newerDraft(a,b){
+  if(!a) return b;
+  if(!b) return a;
+  const ad=(a.attachments||[]).length, bd=(b.attachments||[]).length;
+  const at=a.updatedAt||a.submitTime||'', bt=b.updatedAt||b.submitTime||'';
+  if(at&&bt&&at!==bt) return at>bt?a:b;
+  if(ad!==bd) return ad>bd?a:b;
+  return a;
+}
+function draftNeedsUpload(local,cloud){
+  if(!local||local.status!=='draft') return false;
+  if(!cloud) return true;
+  const la=(local.attachments||[]).length, ca=(cloud.attachments||[]).length;
+  if(la>ca) return true;
+  const lt=local.updatedAt||local.submitTime||'', ct=cloud.updatedAt||cloud.submitTime||'';
+  return !!(lt&&ct&&lt>ct&&draftFingerprint(local)!==draftFingerprint(cloud));
 }
 function draftFingerprint(r){
   const rows=r.formState&&r.formState.rows?JSON.stringify(r.formState.rows):'';
@@ -821,17 +838,17 @@ function dedupeDraftRecords(list){
 function mergeRecordsWithLocalDrafts(cloudRecords, cloudDrafts, localRecords){
   const map=new Map();
   (cloudRecords||[]).forEach(r=>map.set(r.id,r));
-  (cloudDrafts||[]).forEach(r=>map.set(r.id,r));
+  (cloudDrafts||[]).forEach(r=>map.set(r.id,newerDraft(r,map.get(r.id))));
   (localRecords||[]).forEach(r=>{
     if(!r||!r.id||r.status!=='draft') return;
-    if(!map.has(r.id)) map.set(r.id,r);
+    map.set(r.id,newerDraft(r,map.get(r.id)));
   });
   return dedupeDraftRecords(Array.from(map.values()));
 }
 async function syncLocalDraftsToCloud(localRecords, cloudDrafts){
   if(!fbReady||!db) return {tried:0,saved:0};
-  const cloudIds=new Set((cloudDrafts||[]).map(r=>r.id));
-  const drafts=(localRecords||[]).filter(r=>r&&r.id&&r.status==='draft'&&!cloudIds.has(r.id));
+  const cloudById=new Map((cloudDrafts||[]).map(r=>[r.id,r]));
+  const drafts=(localRecords||[]).filter(r=>r&&r.id&&r.status==='draft'&&draftNeedsUpload(r,cloudById.get(r.id)));
   let saved=0;
   for(const draft of drafts){
     const recordWrite=await fbSaveRec(draft);
@@ -856,6 +873,7 @@ async function fbLoadDraftStore(){
 }
 async function fbSaveDraftStoreRec(rec){
   if(!fbReady||!db||!rec||rec.status!=='draft') return false;
+  if(rec.attachments&&rec.attachments.length) await fbSaveAtts(rec.attachments);
   try{
     const snap=await db.collection('expense').doc('drafts').get();
     const list=snap.exists?(snap.data().records||[]):[];
@@ -1495,6 +1513,7 @@ function captureFormState(){
     carEnd:document.getElementById('car-end')?.value||'',
     carDaily:document.getElementById('car-daily')?.value||'',
     carInsurance:document.getElementById('car-insurance')?.value||'',
+    attachments:(currentAttachments||[]).map(a=>({id:a.id||'',name:a.name||'',type:a.type||'',size:a.size||0})),
     rows:{}
   };
   // Capture rows for all types
@@ -1641,7 +1660,9 @@ async function editDraft(id){
   if(fs){
     try{
       restoreFormState(fs);
-      currentAttachments=r.attachments?[...r.attachments]:[];
+      const recAtts=r.attachments?[...r.attachments]:[];
+      const fsAtts=fs.attachments?[...fs.attachments]:[];
+      currentAttachments=recAtts.length>=fsAtts.length?recAtts:fsAtts;
       renderAttachList();
       editingDraftId=id;
       _formLocked=true;
@@ -1661,7 +1682,7 @@ async function editDraft(id){
     document.getElementById('exp-reason').value=(r.reason==='（草稿）'?'':r.reason)||'';
     document.getElementById('apply-date').value=r.date||new Date().toISOString().split('T')[0];
     document.getElementById('remark').value=r.remark||'';
-    currentAttachments=r.attachments?[...r.attachments]:[];
+    currentAttachments=(r.attachments&&r.attachments.length)?[...r.attachments]:[];
     renderAttachList();
     editingDraftId=id;
     _formLocked=true;
@@ -1678,6 +1699,7 @@ async function submitForm(isDraft){
   const formalCount=records.filter(r=>r.status!=='draft'&&r.submittedBy===currentUser.id).length+1;
   const oldDraftId=editingDraftId;
   const id=isDraft?(oldDraftId||('DRAFT-'+currentUser.id+'-'+Date.now())):('EXP-'+currentUser.id+'-'+new Date().getFullYear()+'-'+String(formalCount).padStart(3,'0'));
+  const nowIso=new Date().toISOString();
   if(oldDraftId) records=records.filter(r=>r.id!==oldDraftId);
   records.unshift({
     id,submittedBy:currentUser.id,name:currentUser.name,dept:currentUser.dept||'',
@@ -1685,6 +1707,7 @@ async function submitForm(isDraft){
     amount:'¥'+rawAmount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,','),
     date:document.getElementById('apply-date').value,
     submitTime:new Date().toLocaleString('zh-CN'),
+    updatedAt:nowIso,
     status:isDraft?'draft':'pending',
     remark:document.getElementById('remark').value,
     attachments:[...currentAttachments],
@@ -1744,6 +1767,7 @@ function processFiles(files){
     reader.onload=e=>{
       currentAttachments.push({id:Date.now()+'_'+Math.random().toString(36).slice(2),name:file.name,type:file.type,size:file.size,data:e.target.result});
       renderAttachList();
+      if(editingDraftId) showToast('附件已添加，请点「保存草稿」同步到手机');
     };
     reader.readAsDataURL(file);
   });
