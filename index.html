@@ -788,10 +788,16 @@ function fid(id){return (id||'').replace(/[.#$/\[\]]/g,'_');}
 
 // ── Firebase CRUD ─────────────────────────────────────
 async function fbSaveRec(rec){
-  if(!fbReady||!db) return;
+  if(!fbReady||!db){
+    if(rec.status==='draft') showToast('⚠️ Firebase未连接，草稿仅存本地');
+    return;
+  }
   // 先存主记录，确保草稿一定存到 Firebase
-  try{ await db.collection('expense_records').doc(fid(rec.id)).set(stripRec(rec)); }
-  catch(e){ console.warn('fbSaveRec:',e); showToast('云端同步失败，已保存到本地'); return; }
+  try{
+    await db.collection('expense_records').doc(fid(rec.id)).set(stripRec(rec));
+    if(rec.status==='draft') showToast('✅ 草稿已存到云端');
+  }
+  catch(e){ console.warn('fbSaveRec:',e); showToast('❌ 云端同步失败：'+e.message); return; }
   // 再异步存附件（失败不影响主记录）
   if(rec.attachments&&rec.attachments.length){
     fbSaveAtts(rec.attachments).catch(e=>console.warn('fbSaveAtts:',e));
@@ -845,7 +851,8 @@ function startLive(){
     }
 
     records=newRecords;
-    // 合并本地草稿（Firebase 可能没有存成功的草稿）
+    // 合并本地草稿：从内存和 localStorage 两处找，避免时序问题
+    const memDrafts=records.filter(r=>r.status==='draft'); // 刚赋值的 newRecords 里没有草稿
     const localRecs=lsGet('expense:records',[]);
     const localDrafts=localRecs.filter(lr=>lr.status==='draft'&&!newRecords.find(nr=>nr.id===lr.id));
     if(localDrafts.length>0){
