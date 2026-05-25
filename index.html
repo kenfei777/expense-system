@@ -793,19 +793,25 @@ function hydrateRec(rec){
 }
 
 function recSortValue(r){
-  return r.updatedAt || r.submitTime || r.date || '';
+  return String(r.updatedAtMs || r.updatedAt || r.submitTime || r.date || '');
 }
 function sortRecords(list){
   list.sort((a,b)=>recSortValue(b).localeCompare(recSortValue(a)));
   return list;
 }
+function draftVersion(r){
+  if(!r) return 0;
+  if(Number(r.updatedAtMs)) return Number(r.updatedAtMs);
+  const t=Date.parse(r.updatedAt||'');
+  return Number.isFinite(t)?t:0;
+}
 function newerDraft(a,b){
   if(!a) return b;
   if(!b) return a;
   const ad=(a.attachments||[]).length, bd=(b.attachments||[]).length;
-  const at=a.updatedAt||a.submitTime||'', bt=b.updatedAt||b.submitTime||'';
+  const av=draftVersion(a), bv=draftVersion(b);
+  if(av!==bv) return av>bv?a:b;
   if(ad!==bd) return ad>bd?a:b;
-  if(at&&bt&&at!==bt) return at>bt?a:b;
   return a;
 }
 function draftOwnerKey(r){
@@ -814,10 +820,7 @@ function draftOwnerKey(r){
 function draftNeedsUpload(local,cloud){
   if(!local||local.status!=='draft') return false;
   if(!cloud) return true;
-  const la=(local.attachments||[]).length, ca=(cloud.attachments||[]).length;
-  if(la>ca) return true;
-  const lt=local.updatedAt||local.submitTime||'', ct=cloud.updatedAt||cloud.submitTime||'';
-  return !!(lt&&ct&&lt>ct&&draftFingerprint(local)!==draftFingerprint(cloud));
+  return draftVersion(local)>draftVersion(cloud)&&draftFingerprint(local)!==draftFingerprint(cloud);
 }
 function draftFingerprint(r){
   const rows=r.formState&&r.formState.rows?JSON.stringify(r.formState.rows):'';
@@ -903,7 +906,7 @@ async function fbSaveDraftStoreRec(rec){
     const ownerKey=draftOwnerKey(rec);
     const next=[stripDraftStoreRec(rec),...list.filter(r=>r.id!==rec.id&&draftOwnerKey(r)!==ownerKey)];
     const deduped=dedupeDraftRecords(next).records;
-    await db.collection('expense').doc('drafts').set({records:deduped,updatedAt:new Date().toISOString()},{merge:true});
+    await db.collection('expense').doc('drafts').set({records:deduped,updatedAtMs:Date.now(),updatedAt:new Date().toISOString()},{merge:true});
     lastSyncError='';
     return true;
   }catch(e){
@@ -918,7 +921,7 @@ async function fbDelDraftStoreRec(id){
     const snap=await db.collection('expense').doc('drafts').get();
     if(!snap.exists) return;
     const list=snap.data().records||[];
-    await db.collection('expense').doc('drafts').set({records:list.filter(r=>r.id!==id),updatedAt:new Date().toISOString()},{merge:true});
+    await db.collection('expense').doc('drafts').set({records:list.filter(r=>r.id!==id),updatedAtMs:Date.now(),updatedAt:new Date().toISOString()},{merge:true});
   }catch(e){ console.warn('fbDelDraftStoreRec:',e); }
 }
 async function fbRemoveOtherDraftCopies(rec){
@@ -931,7 +934,7 @@ async function fbRemoveOtherDraftCopies(rec){
     const store=snap=>snap.exists?(snap.data().records||[]):[];
     const snap=await db.collection('expense').doc('drafts').get();
     const next=store(snap).filter(r=>r.id===rec.id||draftOwnerKey(r)!==ownerKey);
-    await db.collection('expense').doc('drafts').set({records:next,updatedAt:new Date().toISOString()},{merge:true});
+    await db.collection('expense').doc('drafts').set({records:next,updatedAtMs:Date.now(),updatedAt:new Date().toISOString()},{merge:true});
   }catch(e){ console.warn('fbRemoveOtherDraftCopies:',e); }
 }
 async function fbVerifyDraftStoreRec(id){
@@ -944,6 +947,28 @@ async function fbVerifyDraftStoreRec(id){
     lastSyncError=e.message||String(e);
     return false;
   }
+}
+async function fbLoadLatestDraft(id, fallbackRec){
+  if(!fbReady||!db) return fallbackRec;
+  const candidates=[];
+  if(fallbackRec) candidates.push(fallbackRec);
+  try{
+    const draftSnap=await db.collection('expense_drafts').doc(fid(id)).get({source:'server'});
+    if(draftSnap.exists) candidates.push(hydrateRec(draftSnap.data()));
+  }catch(e){ console.warn('fbLoadLatestDraft expense_drafts:',e); }
+  try{
+    const recSnap=await db.collection('expense_records').doc(fid(id)).get({source:'server'});
+    if(recSnap.exists&&recSnap.data().status==='draft') candidates.push(hydrateRec(recSnap.data()));
+  }catch(e){ console.warn('fbLoadLatestDraft expense_records:',e); }
+  try{
+    const storeSnap=await db.collection('expense').doc('drafts').get({source:'server'});
+    const list=storeSnap.exists?(storeSnap.data().records||[]):[];
+    const storeRec=list.find(r=>r.id===id);
+    if(storeRec) candidates.push(hydrateRec(storeRec));
+    const sameOwner=fallbackRec?list.filter(r=>draftOwnerKey(r)===draftOwnerKey(fallbackRec)):[];
+    candidates.push(...sameOwner.map(hydrateRec));
+  }catch(e){ console.warn('fbLoadLatestDraft store:',e); }
+  return candidates.reduce((best,r)=>newerDraft(best,r),null)||fallbackRec;
 }
 
 // 把 formState 单独存一份到 expense_formstates 集合（防止被旧版代码删掉）
@@ -1685,8 +1710,14 @@ function restoreFormState(state){
 }
 
 async function editDraft(id){
-  const r=records.find(rec=>rec.id===id);
+  let r=records.find(rec=>rec.id===id);
   if(!r||r.status!=='draft'){showToast('找不到草稿记录');return;}
+  r=await fbLoadLatestDraft(id,r);
+  if(r){
+    records=records.filter(rec=>rec.id!==id&&!(rec.status==='draft'&&draftOwnerKey(rec)===draftOwnerKey(r)));
+    records.unshift(r);
+    lsSet('expense:records',records);
+  }
 
   const TYPE_REVERSE={'日常费用':'daily','国内差旅':'travel','海外出差':'overseas','租车 / 汽油':'car','租车/汽油':'car'};
 
@@ -1699,7 +1730,7 @@ async function editDraft(id){
       restoreFormState(fs);
       const recAtts=r.attachments?[...r.attachments]:[];
       const fsAtts=fs.attachments?[...fs.attachments]:[];
-      currentAttachments=recAtts.length>=fsAtts.length?recAtts:fsAtts;
+      currentAttachments=recAtts.length?recAtts:fsAtts;
       renderAttachList();
       editingDraftId=id;
       _formLocked=true;
@@ -1736,7 +1767,8 @@ async function submitForm(isDraft){
   const formalCount=records.filter(r=>r.status!=='draft'&&r.submittedBy===currentUser.id).length+1;
   const oldDraftId=editingDraftId;
   const id=isDraft?(oldDraftId||('DRAFT-'+currentUser.id+'-'+Date.now())):('EXP-'+currentUser.id+'-'+new Date().getFullYear()+'-'+String(formalCount).padStart(3,'0'));
-  const nowIso=new Date().toISOString();
+  const nowMs=Date.now();
+  const nowIso=new Date(nowMs).toISOString();
   if(oldDraftId) records=records.filter(r=>r.id!==oldDraftId);
   if(isDraft){
     const ownerKey=[currentUser.id,TYPE_MAP[typeVal],document.getElementById('apply-date').value,reason||'（草稿）'].join('||');
@@ -1748,6 +1780,7 @@ async function submitForm(isDraft){
     amount:'¥'+rawAmount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,','),
     date:document.getElementById('apply-date').value,
     submitTime:new Date().toLocaleString('zh-CN'),
+    updatedAtMs:nowMs,
     updatedAt:nowIso,
     status:isDraft?'draft':'pending',
     remark:document.getElementById('remark').value,
