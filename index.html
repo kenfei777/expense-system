@@ -804,8 +804,8 @@ function newerDraft(a,b){
   if(!b) return a;
   const ad=(a.attachments||[]).length, bd=(b.attachments||[]).length;
   const at=a.updatedAt||a.submitTime||'', bt=b.updatedAt||b.submitTime||'';
-  if(at&&bt&&at!==bt) return at>bt?a:b;
   if(ad!==bd) return ad>bd?a:b;
+  if(at&&bt&&at!==bt) return at>bt?a:b;
   return a;
 }
 function draftOwnerKey(r){
@@ -825,22 +825,38 @@ function draftFingerprint(r){
   return [r.submittedBy||'',r.type||'',r.reason||'',r.rawAmount||0,r.date||'',r.remark||'',rows,atts].join('||');
 }
 function dedupeDraftRecords(list){
-  const seen=new Set();
-  const ownerSeen=new Set();
+  const fingerprintMap=new Map();
+  const ownerMap=new Map();
   const removedIds=[];
-  const kept=[];
-  sortRecords([...(list||[])]).forEach(r=>{
-    if(r&&r.status==='draft'){
-      const key=draftFingerprint(r);
-      if(seen.has(key)){ removedIds.push(r.id); return; }
-      seen.add(key);
-      const ownerKey=draftOwnerKey(r);
-      if(ownerSeen.has(ownerKey)){ removedIds.push(r.id); return; }
-      ownerSeen.add(ownerKey);
+  (list||[]).forEach(r=>{
+    if(!r||r.status!=='draft'){
+      ownerMap.set(r&&r.id?r.id:Math.random().toString(36),r);
+      return;
     }
-    kept.push(r);
+    const key=draftFingerprint(r);
+    const same=fingerprintMap.get(key);
+    if(same){
+      const keep=newerDraft(r,same);
+      const drop=keep===r?same:r;
+      removedIds.push(drop.id);
+      fingerprintMap.set(key,keep);
+      return;
+    }
+    fingerprintMap.set(key,r);
   });
-  return {records:sortRecords(kept),removedIds};
+  [...fingerprintMap.values()].forEach(r=>{
+    const ownerKey=draftOwnerKey(r);
+    const existing=ownerMap.get(ownerKey);
+    if(existing){
+      const keep=newerDraft(r,existing);
+      const drop=keep===r?existing:r;
+      removedIds.push(drop.id);
+      ownerMap.set(ownerKey,keep);
+    }else{
+      ownerMap.set(ownerKey,r);
+    }
+  });
+  return {records:sortRecords([...ownerMap.values()].filter(Boolean)),removedIds};
 }
 function mergeRecordsWithLocalDrafts(cloudRecords, cloudDrafts, localRecords){
   const map=new Map();
