@@ -1005,10 +1005,8 @@ async function doLogin(){
   err.textContent='';
   if(btn){btn.textContent='登录中...';btn.disabled=true;}
 
-  // If Firebase not ready yet, wait for loadAll to complete
-  if(!fbReady){
-    await loadAll();
-  }
+  // 等待页面初始化时的 loadAll 完成，不重复调用
+  if(_loadAllPromise) await _loadAllPromise;
 
   if(btn){btn.textContent='登 录';btn.disabled=false;}
 
@@ -2062,7 +2060,7 @@ function showToast(msg){const t=document.getElementById('toast');t.textContent=m
 // ══════════════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════════════
-loadAll();
+let _loadAllPromise = loadAll(); // 记录这个 Promise，doLogin 可以等待它
 </script>
 </body>
 </html>
