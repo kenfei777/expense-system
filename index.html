@@ -808,9 +808,9 @@ function draftVersion(r){
 function newerDraft(a,b){
   if(!a) return b;
   if(!b) return a;
-  const ad=(a.attachments||[]).length, bd=(b.attachments||[]).length;
   const av=draftVersion(a), bv=draftVersion(b);
   if(av!==bv) return av>bv?a:b;
+  const ad=(a.attachments||[]).length, bd=(b.attachments||[]).length;
   if(ad!==bd) return ad>bd?a:b;
   return a;
 }
@@ -863,10 +863,16 @@ function dedupeDraftRecords(list){
 }
 function mergeRecordsWithLocalDrafts(cloudRecords, cloudDrafts, localRecords){
   const map=new Map();
+  const cloudOwnerKeys=new Set((cloudDrafts||[]).map(draftOwnerKey));
   (cloudRecords||[]).forEach(r=>map.set(r.id,r));
   (cloudDrafts||[]).forEach(r=>map.set(r.id,newerDraft(r,map.get(r.id))));
   (localRecords||[]).forEach(r=>{
     if(!r||!r.id||r.status!=='draft') return;
+    const ownerKey=draftOwnerKey(r);
+    if(cloudOwnerKeys.has(ownerKey)){
+      const existing=[...map.values()].find(v=>v&&v.status==='draft'&&draftOwnerKey(v)===ownerKey);
+      if(existing&&draftVersion(r)<=draftVersion(existing)) return;
+    }
     map.set(r.id,newerDraft(r,map.get(r.id)));
   });
   return dedupeDraftRecords(Array.from(map.values()));
@@ -1043,9 +1049,6 @@ function startLive(){
     const merged=mergeRecordsWithLocalDrafts(cloudRecords, cloudDrafts, localRecords);
     const newRecords=merged.records;
     merged.removedIds.forEach(id=>fbDelRec(id));
-    syncLocalDraftsToCloud(newRecords, cloudDrafts).then(res=>{
-      if(res&&res.saved){cloudDraftCount+=res.saved;cloudRecordCount+=res.saved;updateStorageDisplay();}
-    }).catch(e=>{lastSyncError=e.message||String(e);console.warn('syncLocalDraftsToCloud:',e);});
 
     // Detect status changes for current user's records
     if(currentUser){
@@ -1137,8 +1140,6 @@ async function _doLoadAll(){
       records=merged.records;
       merged.removedIds.forEach(id=>fbDelRec(id));
       lsSet('expense:records',records);
-      const syncRes=await syncLocalDraftsToCloud(records, cloudDrafts);
-      if(syncRes&&syncRes.saved){cloudDraftCount+=syncRes.saved;cloudRecordCount+=syncRes.saved;}
       startLive();
       if(statusEl) statusEl.textContent='☁️ Firebase 云端同步已连接';
       if(dotEl) dotEl.style.background='#2980B9';
