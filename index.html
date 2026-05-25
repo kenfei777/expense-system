@@ -804,7 +804,9 @@ let _formLocked = false; // true when user is editing, block form resets from sn
 
 function startLive(){
   if(!fbReady||!db||recordsUnsubscribe) return;
-  recordsUnsubscribe=db.collection('expense_records').onSnapshot(snap=>{
+  recordsUnsubscribe=db.collection('expense_records').onSnapshot({includeMetadataChanges:true},snap=>{
+    // 跳过来自本地缓存的快照（手机端首次触发时缓存为空会清空records）
+    if(snap.metadata.fromCache) return;
     const newRecords=snap.docs.map(d=>hydrateRec(d.data()));
     newRecords.sort((a,b)=>(b.submitTime||'').localeCompare(a.submitTime||''));
 
