@@ -772,6 +772,21 @@ async function fbLoadAtts(atts){
   }
   return result;
 }
+async function fbVerifyAtts(atts){
+  if(!fbReady||!db||!atts||!atts.length) return true;
+  for(const att of atts){
+    if(!att||!att.id) continue;
+    try{
+      const snap=await db.collection('expense_attachments').doc(fid(att.id)).get({source:'server'});
+      if(!snap.exists) return false;
+    }catch(e){
+      lastSyncError=e.message||String(e);
+      console.warn('fbVerifyAtts:',e);
+      return false;
+    }
+  }
+  return true;
+}
 
 function stripRec(rec){
   const r=JSON.parse(JSON.stringify(rec));
@@ -782,7 +797,14 @@ function stripRec(rec){
 }
 function stripDraftStoreRec(rec){
   const r=JSON.parse(JSON.stringify(rec));
-  if(r.attachments) r.attachments=r.attachments.map(a=>({id:a.id||'',name:a.name||'',type:a.type||'',size:a.size||0}));
+  if(r.attachments){
+    const totalData=r.attachments.reduce((s,a)=>s+((a&&a.data)?a.data.length:0),0);
+    const keepInline=totalData>0&&totalData<700000;
+    r.attachments=r.attachments.map(a=>({
+      id:a.id||'',name:a.name||'',type:a.type||'',size:a.size||0,
+      ...(keepInline&&a.data?{data:a.data}:{})
+    }));
+  }
   return r;
 }
 function hydrateRec(rec){
@@ -974,7 +996,15 @@ async function fbLoadLatestDraft(id, fallbackRec){
     const sameOwner=fallbackRec?list.filter(r=>draftOwnerKey(r)===draftOwnerKey(fallbackRec)):[];
     candidates.push(...sameOwner.map(hydrateRec));
   }catch(e){ console.warn('fbLoadLatestDraft store:',e); }
-  return candidates.reduce((best,r)=>newerDraft(best,r),null)||fallbackRec;
+  const best=candidates.reduce((best,r)=>newerDraft(best,r),null)||fallbackRec;
+  if(best){
+    const fs=best.formState || lsGet('expense:fs:'+best.id,null) || await fbLoadFormState(best.id);
+    const recAtts=best.attachments||[];
+    const fsAtts=fs&&fs.attachments?fs.attachments:[];
+    if(fsAtts.length>recAtts.length) best.attachments=fsAtts;
+    if(fs&&!best.formState) best.formState=fs;
+  }
+  return best;
 }
 
 // 把 formState 单独存一份到 expense_formstates 集合（防止被旧版代码删掉）
@@ -1731,7 +1761,8 @@ async function editDraft(id){
       restoreFormState(fs);
       const recAtts=r.attachments?[...r.attachments]:[];
       const fsAtts=fs.attachments?[...fs.attachments]:[];
-      currentAttachments=recAtts.length?recAtts:fsAtts;
+      const pickedAtts=recAtts.length>=fsAtts.length?recAtts:fsAtts;
+      currentAttachments=await fbLoadAtts(pickedAtts);
       renderAttachList();
       editingDraftId=id;
       _formLocked=true;
@@ -1751,7 +1782,7 @@ async function editDraft(id){
     document.getElementById('exp-reason').value=(r.reason==='（草稿）'?'':r.reason)||'';
     document.getElementById('apply-date').value=r.date||new Date().toISOString().split('T')[0];
     document.getElementById('remark').value=r.remark||'';
-    currentAttachments=(r.attachments&&r.attachments.length)?[...r.attachments]:[];
+    currentAttachments=await fbLoadAtts((r.attachments&&r.attachments.length)?[...r.attachments]:[]);
     renderAttachList();
     editingDraftId=id;
     _formLocked=true;
@@ -1798,10 +1829,15 @@ async function submitForm(isDraft){
     const draftStoreWrite=await fbSaveDraftStoreRec(newRec);
     const recordVerified=recordWrite?await fbVerifyRec(newRec.id,newRec.status):false;
     const draftStoreVerified=draftStoreWrite?await fbVerifyDraftStoreRec(newRec.id):false;
-    cloudVerified=recordVerified||draftStoreVerified;
+    const attsVerified=await fbVerifyAtts(newRec.attachments);
+    cloudVerified=(recordVerified||draftStoreVerified)&&attsVerified;
+    if((recordVerified||draftStoreVerified)&&!attsVerified) lastSyncError='附件文件未完整写入云端';
   }else{
     const cloudSaved=await fbSaveRec(newRec);
-    cloudVerified=cloudSaved?await fbVerifyRec(newRec.id,newRec.status):false;
+    const recVerified=cloudSaved?await fbVerifyRec(newRec.id,newRec.status):false;
+    const attsVerified=await fbVerifyAtts(newRec.attachments);
+    cloudVerified=recVerified&&attsVerified;
+    if(recVerified&&!attsVerified) lastSyncError='附件文件未完整写入云端';
   }
   if(cloudVerified) await fbSaveFormState(newRec.id, newRec.formState);
   if(cloudVerified&&isDraft) cloudDraftCount=Math.max(cloudDraftCount,records.filter(r=>r.status==='draft').length);
@@ -1861,9 +1897,21 @@ function renderAttachList(){
   });
 }
 function removeAtt(idx){currentAttachments.splice(idx,1);renderAttachList();}
-function previewAtt(idx,recId){
+async function previewAtt(idx,recId){
   let att=recId!==undefined?(records.find(r=>r.id===recId)||{attachments:[]}).attachments[idx]:currentAttachments[idx];
   if(!att)return;
+  if(!att.data){
+    showToast('正在从云端加载附件...');
+    const loaded=await fbLoadAtts([att]);
+    att=loaded[0]||att;
+    if(recId!==undefined){
+      const rec=records.find(r=>r.id===recId);
+      if(rec&&rec.attachments) rec.attachments[idx]=att;
+    }else{
+      currentAttachments[idx]=att;
+    }
+  }
+  if(!att.data){showToast('附件文件未同步到云端，请在上传端重新保存草稿');return;}
   previewFile=att;
   document.getElementById('preview-filename').textContent=att.name;
   const c=document.getElementById('preview-content');
@@ -1888,6 +1936,10 @@ async function downloadAttachmentsZip(recId){
   if(!rec||!rec.attachments||!rec.attachments.length){showToast('该申请没有附件');return;}
   showToast('正在打包附件…');
   try{
+    if(rec.attachments.some(a=>!a.data)){
+      rec.attachments=await fbLoadAtts(rec.attachments);
+    }
+    if(rec.attachments.some(a=>!a.data)){showToast('部分附件文件未同步到云端，无法打包');return;}
     const zip=new JSZip();
     const folder=zip.folder(rec.id);
     // Deduplicate filenames
