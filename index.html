@@ -808,6 +808,9 @@ function newerDraft(a,b){
   if(ad!==bd) return ad>bd?a:b;
   return a;
 }
+function draftOwnerKey(r){
+  return [r.submittedBy||'',r.type||'',r.date||'',r.reason||''].join('||');
+}
 function draftNeedsUpload(local,cloud){
   if(!local||local.status!=='draft') return false;
   if(!cloud) return true;
@@ -823,6 +826,7 @@ function draftFingerprint(r){
 }
 function dedupeDraftRecords(list){
   const seen=new Set();
+  const ownerSeen=new Set();
   const removedIds=[];
   const kept=[];
   sortRecords([...(list||[])]).forEach(r=>{
@@ -830,6 +834,9 @@ function dedupeDraftRecords(list){
       const key=draftFingerprint(r);
       if(seen.has(key)){ removedIds.push(r.id); return; }
       seen.add(key);
+      const ownerKey=draftOwnerKey(r);
+      if(ownerSeen.has(ownerKey)){ removedIds.push(r.id); return; }
+      ownerSeen.add(ownerKey);
     }
     kept.push(r);
   });
@@ -877,7 +884,8 @@ async function fbSaveDraftStoreRec(rec){
   try{
     const snap=await db.collection('expense').doc('drafts').get();
     const list=snap.exists?(snap.data().records||[]):[];
-    const next=[stripDraftStoreRec(rec),...list.filter(r=>r.id!==rec.id)];
+    const ownerKey=draftOwnerKey(rec);
+    const next=[stripDraftStoreRec(rec),...list.filter(r=>r.id!==rec.id&&draftOwnerKey(r)!==ownerKey)];
     const deduped=dedupeDraftRecords(next).records;
     await db.collection('expense').doc('drafts').set({records:deduped,updatedAt:new Date().toISOString()},{merge:true});
     lastSyncError='';
@@ -896,6 +904,19 @@ async function fbDelDraftStoreRec(id){
     const list=snap.data().records||[];
     await db.collection('expense').doc('drafts').set({records:list.filter(r=>r.id!==id),updatedAt:new Date().toISOString()},{merge:true});
   }catch(e){ console.warn('fbDelDraftStoreRec:',e); }
+}
+async function fbRemoveOtherDraftCopies(rec){
+  if(!fbReady||!db||!rec||rec.status!=='draft') return;
+  const ownerKey=draftOwnerKey(rec);
+  try{
+    records
+      .filter(r=>r.status==='draft'&&r.id!==rec.id&&draftOwnerKey(r)===ownerKey)
+      .forEach(r=>fbDelRec(r.id));
+    const store=snap=>snap.exists?(snap.data().records||[]):[];
+    const snap=await db.collection('expense').doc('drafts').get();
+    const next=store(snap).filter(r=>r.id===rec.id||draftOwnerKey(r)!==ownerKey);
+    await db.collection('expense').doc('drafts').set({records:next,updatedAt:new Date().toISOString()},{merge:true});
+  }catch(e){ console.warn('fbRemoveOtherDraftCopies:',e); }
 }
 async function fbVerifyDraftStoreRec(id){
   if(!fbReady||!db) return false;
@@ -1701,6 +1722,10 @@ async function submitForm(isDraft){
   const id=isDraft?(oldDraftId||('DRAFT-'+currentUser.id+'-'+Date.now())):('EXP-'+currentUser.id+'-'+new Date().getFullYear()+'-'+String(formalCount).padStart(3,'0'));
   const nowIso=new Date().toISOString();
   if(oldDraftId) records=records.filter(r=>r.id!==oldDraftId);
+  if(isDraft){
+    const ownerKey=[currentUser.id,TYPE_MAP[typeVal],document.getElementById('apply-date').value,reason||'（草稿）'].join('||');
+    records=records.filter(r=>!(r.status==='draft'&&r.id!==id&&draftOwnerKey(r)===ownerKey));
+  }
   records.unshift({
     id,submittedBy:currentUser.id,name:currentUser.name,dept:currentUser.dept||'',
     type:TYPE_MAP[typeVal],reason:reason||'（草稿）',rawAmount,
@@ -1718,6 +1743,7 @@ async function submitForm(isDraft){
   if(!isDraft&&oldDraftId) await fbDelRec(oldDraftId);
   let cloudVerified=false;
   if(isDraft){
+    await fbRemoveOtherDraftCopies(newRec);
     const recordWrite=await fbSaveRec(newRec);
     const draftStoreWrite=await fbSaveDraftStoreRec(newRec);
     const recordVerified=recordWrite?await fbVerifyRec(newRec.id,newRec.status):false;
