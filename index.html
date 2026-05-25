@@ -697,7 +697,10 @@ function initFirebase(){
   try{
     if(!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
     db=firebase.firestore();
-    db.enablePersistence().catch(()=>{});  // 离线缓存
+    // 离线缓存：手机多标签或隐私模式下可能失败，忽略错误继续
+    db.enablePersistence({synchronizeTabs:true}).catch(e=>{
+      console.warn('Persistence failed (ok to ignore):', e.code);
+    });
     fbReady=true; return true;
   }catch(e){ console.warn('Firebase init failed:',e); fbReady=false; return false; }
 }
