@@ -708,7 +708,10 @@ let db = null;
 let fbReady = false;
 let _loadAllPromise = null;
 let recordsUnsubscribe = null;
+let draftsUnsubscribe = null;
 let cloudRecordCount = 0;
+let cloudFormalCount = 0;
+let cloudDraftCount = 0;
 let lastSyncError = '';
 
 function initFirebase(){
@@ -810,18 +813,19 @@ function dedupeDraftRecords(list){
   });
   return {records:sortRecords(kept),removedIds};
 }
-function mergeRecordsWithLocalDrafts(cloudRecords, localRecords){
+function mergeRecordsWithLocalDrafts(cloudRecords, cloudDrafts, localRecords){
   const map=new Map();
   (cloudRecords||[]).forEach(r=>map.set(r.id,r));
+  (cloudDrafts||[]).forEach(r=>map.set(r.id,r));
   (localRecords||[]).forEach(r=>{
     if(!r||!r.id||r.status!=='draft') return;
     if(!map.has(r.id)) map.set(r.id,r);
   });
   return dedupeDraftRecords(Array.from(map.values()));
 }
-async function syncLocalDraftsToCloud(localRecords, cloudRecords){
+async function syncLocalDraftsToCloud(localRecords, cloudDrafts){
   if(!fbReady||!db) return {tried:0,saved:0};
-  const cloudIds=new Set((cloudRecords||[]).map(r=>r.id));
+  const cloudIds=new Set((cloudDrafts||[]).map(r=>r.id));
   const drafts=(localRecords||[]).filter(r=>r&&r.id&&r.status==='draft'&&!cloudIds.has(r.id));
   let saved=0;
   for(const draft of drafts){
@@ -848,20 +852,24 @@ async function fbLoadFormState(id){
   }catch(e){ return null; }
 }
 function fid(id){return (id||'').replace(/[.#$/\[\]]/g,'_');}
+function recCollection(recOrStatus){
+  const status=typeof recOrStatus==='string'?recOrStatus:(recOrStatus&&recOrStatus.status);
+  return status==='draft'?'expense_drafts':'expense_records';
+}
 
 // ── Firebase CRUD ─────────────────────────────────────
 async function fbSaveRec(rec){
   if(!fbReady||!db) return false;
   if(rec.attachments&&rec.attachments.length) await fbSaveAtts(rec.attachments);
-  try{ await db.collection('expense_records').doc(fid(rec.id)).set(stripRec(rec)); }
+  try{ await db.collection(recCollection(rec)).doc(fid(rec.id)).set(stripRec(rec)); }
   catch(e){ lastSyncError=e.message||String(e); console.warn('fbSaveRec:',e); showToast('云端同步失败：'+lastSyncError); return false; }
   lastSyncError='';
   return true;
 }
-async function fbVerifyRec(id){
+async function fbVerifyRec(id,status){
   if(!fbReady||!db) return false;
   try{
-    const snap=await db.collection('expense_records').doc(fid(id)).get({source:'server'});
+    const snap=await db.collection(recCollection(status)).doc(fid(id)).get({source:'server'});
     return snap.exists;
   }catch(e){
     lastSyncError=e.message||String(e);
@@ -871,7 +879,10 @@ async function fbVerifyRec(id){
 }
 async function fbDelRec(id){
   if(!fbReady||!db) return;
-  try{ await db.collection('expense_records').doc(fid(id)).delete(); }
+  try{
+    await db.collection('expense_records').doc(fid(id)).delete();
+    await db.collection('expense_drafts').doc(fid(id)).delete();
+  }
   catch(e){ console.warn('fbDelRec:',e); }
 }
 async function fbSetCfg(patch){
@@ -884,18 +895,21 @@ async function fbSetCfg(patch){
 let _formLocked = false; // true when user is editing, block form resets from snapshot
 
 function startLive(){
-  if(!fbReady||!db||recordsUnsubscribe) return;
-  recordsUnsubscribe=db.collection('expense_records').onSnapshot({includeMetadataChanges:true},snap=>{
-    // 跳过来自本地缓存的快照（手机端首次触发时缓存为空会清空records）
-    if(snap.metadata.fromCache) return;
-    const cloudRecords=sortRecords(snap.docs.map(d=>hydrateRec(d.data())));
-    cloudRecordCount=cloudRecords.length;
+  if(!fbReady||!db||recordsUnsubscribe||draftsUnsubscribe) return;
+  let liveRecords=null,liveDrafts=null;
+  const applyLive=()=>{
+    if(!liveRecords||!liveDrafts) return;
+    const cloudRecords=sortRecords(liveRecords);
+    const cloudDrafts=sortRecords(liveDrafts);
+    cloudFormalCount=cloudRecords.length;
+    cloudDraftCount=cloudDrafts.length;
+    cloudRecordCount=cloudFormalCount+cloudDraftCount;
     const localRecords=lsGet('expense:records',[]);
-    const merged=mergeRecordsWithLocalDrafts(cloudRecords, localRecords);
+    const merged=mergeRecordsWithLocalDrafts(cloudRecords, cloudDrafts, localRecords);
     const newRecords=merged.records;
     merged.removedIds.forEach(id=>fbDelRec(id));
-    syncLocalDraftsToCloud(newRecords, cloudRecords).then(res=>{
-      if(res&&res.saved){cloudRecordCount+=res.saved;updateStorageDisplay();}
+    syncLocalDraftsToCloud(newRecords, cloudDrafts).then(res=>{
+      if(res&&res.saved){cloudDraftCount+=res.saved;cloudRecordCount+=res.saved;updateStorageDisplay();}
     }).catch(e=>{lastSyncError=e.message||String(e);console.warn('syncLocalDraftsToCloud:',e);});
 
     // Detect status changes for current user's records
@@ -937,6 +951,16 @@ function startLive(){
         // _formLocked=true 时任何页面都不重置表单
       }
     }
+  };
+  recordsUnsubscribe=db.collection('expense_records').onSnapshot({includeMetadataChanges:true},snap=>{
+    if(snap.metadata.fromCache) return;
+    liveRecords=snap.docs.map(d=>hydrateRec(d.data()));
+    applyLive();
+  }, e=>console.warn('Records snapshot error:',e));
+  draftsUnsubscribe=db.collection('expense_drafts').onSnapshot({includeMetadataChanges:true},snap=>{
+    if(snap.metadata.fromCache) return;
+    liveDrafts=snap.docs.map(d=>hydrateRec(d.data()));
+    applyLive();
   }, e=>console.warn('Snapshot error:',e));
 }
 
@@ -965,15 +989,19 @@ async function _doLoadAll(){
         await fbSetCfg({users:USERS,rates:DEFAULT_RATES,domestic_allowance:200,overseas_allowance:500});
       }
       const recsSnap=await db.collection('expense_records').get();
+      const draftsSnap=await db.collection('expense_drafts').get();
       const cloudRecords=sortRecords(recsSnap.docs.map(d=>hydrateRec(d.data())));
-      cloudRecordCount=cloudRecords.length;
+      const cloudDrafts=sortRecords(draftsSnap.docs.map(d=>hydrateRec(d.data())));
+      cloudFormalCount=cloudRecords.length;
+      cloudDraftCount=cloudDrafts.length;
+      cloudRecordCount=cloudFormalCount+cloudDraftCount;
       const localRecords=lsGet('expense:records',[]);
-      const merged=mergeRecordsWithLocalDrafts(cloudRecords, localRecords);
+      const merged=mergeRecordsWithLocalDrafts(cloudRecords, cloudDrafts, localRecords);
       records=merged.records;
       merged.removedIds.forEach(id=>fbDelRec(id));
       lsSet('expense:records',records);
-      const syncRes=await syncLocalDraftsToCloud(records, cloudRecords);
-      if(syncRes&&syncRes.saved) cloudRecordCount+=syncRes.saved;
+      const syncRes=await syncLocalDraftsToCloud(records, cloudDrafts);
+      if(syncRes&&syncRes.saved){cloudDraftCount+=syncRes.saved;cloudRecordCount+=syncRes.saved;}
       startLive();
       if(statusEl) statusEl.textContent='☁️ Firebase 云端同步已连接';
       if(dotEl) dotEl.style.background='#2980B9';
@@ -1018,7 +1046,7 @@ function updateStorageDisplay(){
     if(fbReady){
       const localCount=records.length;
       const waiting=Math.max(0,localCount-cloudRecordCount);
-      el.textContent='☁️ Firebase 云端 '+cloudRecordCount+'条 · 本地 '+localCount+'条'+(waiting?' · 待同步 '+waiting+'条':'')+(lastSyncError?' · 同步失败':'');
+      el.textContent='☁️ Firebase 正式 '+cloudFormalCount+'条 · 草稿 '+cloudDraftCount+'条 · 本地 '+localCount+'条'+(waiting?' · 待同步 '+waiting+'条':'')+(lastSyncError?' · 同步失败':'');
     }
     else el.textContent='⚠️ 离线模式 · '+records.length+'条记录';
   }
@@ -1610,9 +1638,10 @@ async function submitForm(isDraft){
   if(!isDraft&&oldDraftId) await fbDelRec(oldDraftId);
   const cloudSaved=await fbSaveRec(newRec);
   if(cloudSaved) await fbSaveFormState(newRec.id, newRec.formState);
-  const cloudVerified=cloudSaved?await fbVerifyRec(newRec.id):false;
-  if(cloudVerified&&!records.some(r=>r.id===newRec.id&&r.status==='draft')) cloudRecordCount++;
-  if(cloudVerified&&isDraft&&cloudRecordCount<records.length) cloudRecordCount=records.length;
+  const cloudVerified=cloudSaved?await fbVerifyRec(newRec.id,newRec.status):false;
+  if(cloudVerified&&isDraft) cloudDraftCount=Math.max(cloudDraftCount,records.filter(r=>r.status==='draft').length);
+  if(cloudVerified&&!isDraft) cloudFormalCount=Math.max(cloudFormalCount,records.filter(r=>r.status!=='draft').length);
+  if(cloudVerified) cloudRecordCount=cloudFormalCount+cloudDraftCount;
   saveRecords();updateMetrics();
   showToast(isDraft?(cloudVerified?'草稿已保存到云端数据库':'草稿只保存到本地，云端写入失败'):(cloudVerified?'已提交审批，编号 '+id:'已提交到本地，云端写入失败'));
   if(isDraft) editingDraftId=id;
@@ -1780,8 +1809,12 @@ async function submitDraft(id){
   await fbDelRec(id);
   const cloudSaved=await fbSaveRec(submitted);
   if(cloudSaved&&submitted.formState) await fbSaveFormState(submitted.id,submitted.formState);
-  const cloudVerified=cloudSaved?await fbVerifyRec(submitted.id):false;
-  if(cloudVerified&&cloudRecordCount<records.length) cloudRecordCount=records.length;
+  const cloudVerified=cloudSaved?await fbVerifyRec(submitted.id,submitted.status):false;
+  if(cloudVerified){
+    cloudFormalCount=Math.max(cloudFormalCount,records.filter(r=>r.status!=='draft').length);
+    cloudDraftCount=Math.max(0,cloudDraftCount-1);
+    cloudRecordCount=cloudFormalCount+cloudDraftCount;
+  }
   saveRecords();updateMetrics();renderMyRecords();
   showToast(cloudVerified?'已提交审批，编号 '+newId:'已提交到本地，云端写入失败');
 }
