@@ -783,10 +783,9 @@ function fid(id){return (id||'').replace(/[.#$/\[\]]/g,'_');}
 
 // ── Firebase CRUD ─────────────────────────────────────
 async function fbSaveRec(rec){
-  if(!fbReady||!db) return;
+  if(!fbReady||!db) throw new Error('Firebase not ready');
   if(rec.attachments&&rec.attachments.length) await fbSaveAtts(rec.attachments);
-  try{ await db.collection('expense_records').doc(fid(rec.id)).set(stripRec(rec)); }
-  catch(e){ console.warn('fbSaveRec:',e); showToast('云端同步失败，已保存到本地'); }
+  await db.collection('expense_records').doc(fid(rec.id)).set(stripRec(rec));
 }
 async function fbDelRec(id){
   if(!fbReady||!db) return;
@@ -1494,8 +1493,14 @@ function submitForm(isDraft){
   if(!isDraft&&!reason){showToast('请填写费用事由');return;}
   const typeVal=document.getElementById('exp-type').value,rawAmount=getCurrentAmount();
   const formalCount=records.filter(r=>r.status!=='draft'&&r.submittedBy===currentUser.id).length+1;
-  const id=isDraft?('DRAFT-'+Date.now()):('EXP-'+currentUser.id+'-'+new Date().getFullYear()+'-'+String(formalCount).padStart(3,'0'));
-  records.unshift({
+  const id=isDraft?('DRAFT-'+currentUser.id):('EXP-'+currentUser.id+'-'+new Date().getFullYear()+'-'+String(formalCount).padStart(3,'0'));
+  // 草稿：先删除同一用户的旧草稿（本地+Firebase），保证Firebase里只有一条草稿
+  if(isDraft){
+    const oldDrafts=records.filter(r=>r.submittedBy===currentUser.id&&r.status==='draft'&&r.id!==id);
+    oldDrafts.forEach(r=>fbDelRec(r.id));
+    records=records.filter(r=>!(r.submittedBy===currentUser.id&&r.status==='draft'));
+  }
+  const newRec={
     id,submittedBy:currentUser.id,name:currentUser.name,dept:currentUser.dept||'',
     type:TYPE_MAP[typeVal],reason:reason||'（草稿）',rawAmount,
     amount:'¥'+rawAmount.toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,','),
@@ -1506,12 +1511,18 @@ function submitForm(isDraft){
     attachments:[...currentAttachments],
     approvalLog:[],
     formState: captureFormState()
-  });
-  const newRec=records[0];
-  fbSaveRec(newRec);
-  fbSaveFormState(newRec.id, newRec.formState);
+  };
+  records.unshift(newRec);
+  if(isDraft){
+    // 草稿异步存Firebase，完成后弹Toast确认
+    fbSaveRec(newRec).then(()=>showToast('✅ 草稿已存到云端')).catch(()=>showToast('⚠️ 云端同步失败，已保存到本地'));
+    fbSaveFormState(newRec.id, newRec.formState);
+  } else {
+    fbSaveRec(newRec);
+    fbSaveFormState(newRec.id, newRec.formState);
+    showToast('已提交审批，编号 '+id);
+  }
   saveRecords();updateMetrics();
-  showToast(isDraft?'草稿已保存':'已提交审批，编号 '+id);
   if(!isDraft){_formLocked=false;clearForm();}
   else{_formLocked=false;}
 }
