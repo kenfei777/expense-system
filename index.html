@@ -708,6 +708,8 @@ let db = null;
 let fbReady = false;
 let _loadAllPromise = null;
 let recordsUnsubscribe = null;
+let cloudRecordCount = 0;
+let lastSyncError = '';
 
 function initFirebase(){
   try{
@@ -818,13 +820,18 @@ function mergeRecordsWithLocalDrafts(cloudRecords, localRecords){
   return dedupeDraftRecords(Array.from(map.values()));
 }
 async function syncLocalDraftsToCloud(localRecords, cloudRecords){
-  if(!fbReady||!db) return;
+  if(!fbReady||!db) return {tried:0,saved:0};
   const cloudIds=new Set((cloudRecords||[]).map(r=>r.id));
   const drafts=(localRecords||[]).filter(r=>r&&r.id&&r.status==='draft'&&!cloudIds.has(r.id));
+  let saved=0;
   for(const draft of drafts){
-    await fbSaveRec(draft);
-    if(draft.formState) await fbSaveFormState(draft.id,draft.formState);
+    const ok=await fbSaveRec(draft);
+    if(ok){
+      saved++;
+      if(draft.formState) await fbSaveFormState(draft.id,draft.formState);
+    }
   }
+  return {tried:drafts.length,saved};
 }
 
 // 把 formState 单独存一份到 expense_formstates 集合（防止被旧版代码删掉）
@@ -847,8 +854,20 @@ async function fbSaveRec(rec){
   if(!fbReady||!db) return false;
   if(rec.attachments&&rec.attachments.length) await fbSaveAtts(rec.attachments);
   try{ await db.collection('expense_records').doc(fid(rec.id)).set(stripRec(rec)); }
-  catch(e){ console.warn('fbSaveRec:',e); showToast('云端同步失败，已保存到本地'); return false; }
+  catch(e){ lastSyncError=e.message||String(e); console.warn('fbSaveRec:',e); showToast('云端同步失败：'+lastSyncError); return false; }
+  lastSyncError='';
   return true;
+}
+async function fbVerifyRec(id){
+  if(!fbReady||!db) return false;
+  try{
+    const snap=await db.collection('expense_records').doc(fid(id)).get({source:'server'});
+    return snap.exists;
+  }catch(e){
+    lastSyncError=e.message||String(e);
+    console.warn('fbVerifyRec:',e);
+    return false;
+  }
 }
 async function fbDelRec(id){
   if(!fbReady||!db) return;
@@ -870,11 +889,14 @@ function startLive(){
     // 跳过来自本地缓存的快照（手机端首次触发时缓存为空会清空records）
     if(snap.metadata.fromCache) return;
     const cloudRecords=sortRecords(snap.docs.map(d=>hydrateRec(d.data())));
+    cloudRecordCount=cloudRecords.length;
     const localRecords=lsGet('expense:records',[]);
     const merged=mergeRecordsWithLocalDrafts(cloudRecords, localRecords);
     const newRecords=merged.records;
     merged.removedIds.forEach(id=>fbDelRec(id));
-    syncLocalDraftsToCloud(newRecords, cloudRecords).catch(e=>console.warn('syncLocalDraftsToCloud:',e));
+    syncLocalDraftsToCloud(newRecords, cloudRecords).then(res=>{
+      if(res&&res.saved){cloudRecordCount+=res.saved;updateStorageDisplay();}
+    }).catch(e=>{lastSyncError=e.message||String(e);console.warn('syncLocalDraftsToCloud:',e);});
 
     // Detect status changes for current user's records
     if(currentUser){
@@ -944,12 +966,14 @@ async function _doLoadAll(){
       }
       const recsSnap=await db.collection('expense_records').get();
       const cloudRecords=sortRecords(recsSnap.docs.map(d=>hydrateRec(d.data())));
+      cloudRecordCount=cloudRecords.length;
       const localRecords=lsGet('expense:records',[]);
       const merged=mergeRecordsWithLocalDrafts(cloudRecords, localRecords);
       records=merged.records;
       merged.removedIds.forEach(id=>fbDelRec(id));
       lsSet('expense:records',records);
-      await syncLocalDraftsToCloud(records, cloudRecords);
+      const syncRes=await syncLocalDraftsToCloud(records, cloudRecords);
+      if(syncRes&&syncRes.saved) cloudRecordCount+=syncRes.saved;
       startLive();
       if(statusEl) statusEl.textContent='☁️ Firebase 云端同步已连接';
       if(dotEl) dotEl.style.background='#2980B9';
@@ -991,7 +1015,11 @@ function saveAllowance(){
 function updateStorageDisplay(){
   const el=document.getElementById('storage-status');
   if(el){
-    if(fbReady) el.textContent='☁️ Firebase 云端同步 · '+records.length+'条记录';
+    if(fbReady){
+      const localCount=records.length;
+      const waiting=Math.max(0,localCount-cloudRecordCount);
+      el.textContent='☁️ Firebase 云端 '+cloudRecordCount+'条 · 本地 '+localCount+'条'+(waiting?' · 待同步 '+waiting+'条':'')+(lastSyncError?' · 同步失败':'');
+    }
     else el.textContent='⚠️ 离线模式 · '+records.length+'条记录';
   }
   try{
@@ -1581,9 +1609,12 @@ async function submitForm(isDraft){
   const newRec=records[0];
   if(!isDraft&&oldDraftId) await fbDelRec(oldDraftId);
   const cloudSaved=await fbSaveRec(newRec);
-  await fbSaveFormState(newRec.id, newRec.formState);
+  if(cloudSaved) await fbSaveFormState(newRec.id, newRec.formState);
+  const cloudVerified=cloudSaved?await fbVerifyRec(newRec.id):false;
+  if(cloudVerified&&!records.some(r=>r.id===newRec.id&&r.status==='draft')) cloudRecordCount++;
+  if(cloudVerified&&isDraft&&cloudRecordCount<records.length) cloudRecordCount=records.length;
   saveRecords();updateMetrics();
-  showToast(isDraft?(cloudSaved?'草稿已保存并同步':'草稿已保存到本地，联网后会同步'):'已提交审批，编号 '+id);
+  showToast(isDraft?(cloudVerified?'草稿已保存到云端数据库':'草稿只保存到本地，云端写入失败'):(cloudVerified?'已提交审批，编号 '+id:'已提交到本地，云端写入失败'));
   if(isDraft) editingDraftId=id;
   else{editingDraftId=null;_formLocked=false;clearForm();}
   if(isDraft){_formLocked=false;}
@@ -1748,9 +1779,11 @@ async function submitDraft(id){
   records.unshift(submitted);
   await fbDelRec(id);
   const cloudSaved=await fbSaveRec(submitted);
-  if(submitted.formState) await fbSaveFormState(submitted.id,submitted.formState);
+  if(cloudSaved&&submitted.formState) await fbSaveFormState(submitted.id,submitted.formState);
+  const cloudVerified=cloudSaved?await fbVerifyRec(submitted.id):false;
+  if(cloudVerified&&cloudRecordCount<records.length) cloudRecordCount=records.length;
   saveRecords();updateMetrics();renderMyRecords();
-  showToast(cloudSaved?'已提交审批，编号 '+newId:'已提交到本地，云端同步失败');
+  showToast(cloudVerified?'已提交审批，编号 '+newId:'已提交到本地，云端写入失败');
 }
 function resubmit(id){const r=records.find(r=>r.id===id);if(r){r.status='pending';r.submitTime=new Date().toLocaleString('zh-CN');if(!r.approvalLog)r.approvalLog=[];r.approvalLog.push({action:'resubmit',time:new Date().toLocaleString('zh-CN')});fbSaveRec(r);saveRecords();updateMetrics();renderMyRecords();showToast('已重新提交');}}
 function deleteMyRecord(id){if(!confirm('确认删除？附件也将一并删除。'))return;fbDelRec(id);records=records.filter(r=>r.id!==id);saveRecords();updateMetrics();renderMyRecords();}
