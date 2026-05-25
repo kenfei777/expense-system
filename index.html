@@ -831,7 +831,13 @@ function startLive(){
       });
     }
 
-    records=newRecords;
+    // 合并本地草稿：Firebase没有的草稿（还在上传中）保留在内存里
+    if(currentUser){
+      const localDrafts=records.filter(r=>r.status==='draft'&&r.submittedBy===currentUser.id&&!newRecords.find(nr=>nr.id===r.id));
+      records=[...newRecords,...localDrafts];
+    } else {
+      records=newRecords;
+    }
     lsSet('expense:records',records);
     if(currentUser){
       updateMetrics(); updatePendingBadge(); updateStorageDisplay();
@@ -1494,10 +1500,9 @@ function submitForm(isDraft){
   const typeVal=document.getElementById('exp-type').value,rawAmount=getCurrentAmount();
   const formalCount=records.filter(r=>r.status!=='draft'&&r.submittedBy===currentUser.id).length+1;
   const id=isDraft?('DRAFT-'+currentUser.id):('EXP-'+currentUser.id+'-'+new Date().getFullYear()+'-'+String(formalCount).padStart(3,'0'));
-  // 草稿：先删除同一用户的旧草稿（本地+Firebase），保证Firebase里只有一条草稿
+  // 草稿：收集旧草稿（先不删Firebase，等新草稿存成功后再删，避免onSnapshot时序问题）
+  const oldDrafts=isDraft?records.filter(r=>r.submittedBy===currentUser.id&&r.status==='draft'&&r.id!==id):[];
   if(isDraft){
-    const oldDrafts=records.filter(r=>r.submittedBy===currentUser.id&&r.status==='draft'&&r.id!==id);
-    oldDrafts.forEach(r=>fbDelRec(r.id));
     records=records.filter(r=>!(r.submittedBy===currentUser.id&&r.status==='draft'));
   }
   const newRec={
@@ -1514,8 +1519,11 @@ function submitForm(isDraft){
   };
   records.unshift(newRec);
   if(isDraft){
-    // 草稿异步存Firebase，完成后弹Toast确认
-    fbSaveRec(newRec).then(()=>showToast('✅ 草稿已存到云端')).catch(()=>showToast('⚠️ 云端同步失败，已保存到本地'));
+    // 草稿：先存新记录到Firebase，成功后再删旧草稿
+    fbSaveRec(newRec).then(()=>{
+      showToast('✅ 草稿已存到云端');
+      oldDrafts.forEach(r=>fbDelRec(r.id));
+    }).catch(()=>showToast('⚠️ 云端同步失败，已保存到本地'));
     fbSaveFormState(newRec.id, newRec.formState);
   } else {
     fbSaveRec(newRec);
