@@ -708,7 +708,7 @@ function lsSet(k,v){try{localStorage.setItem(k,JSON.stringify(v));return true;}c
 
 // ── Attachment handling ───────────────────────────────
 // 附件 base64 存 Firebase 独立集合（expense_attachments），每设备可见
-function saveAttLocal(att){if(att?.id&&att?.data) localStorage.setItem('expense:att:'+att.id, att.data);}
+function saveAttLocal(att){try{if(att?.id&&att?.data) localStorage.setItem('expense:att:'+att.id, att.data);}catch(e){console.warn('saveAttLocal quota exceeded:',att?.name);}}
 function loadAttLocal(att){if(att?.id&&!att?.data) att.data=localStorage.getItem('expense:att:'+att.id)||null; return att;}
 
 // 存附件到 Firebase（每个附件一个文档，分块存避免超 1MB）
