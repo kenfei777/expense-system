@@ -834,8 +834,11 @@ async function syncLocalDraftsToCloud(localRecords, cloudDrafts){
   const drafts=(localRecords||[]).filter(r=>r&&r.id&&r.status==='draft'&&!cloudIds.has(r.id));
   let saved=0;
   for(const draft of drafts){
-    const ok=(await fbSaveRec(draft)) || (await fbSaveDraftStoreRec(draft));
-    if(ok){
+    const recordWrite=await fbSaveRec(draft);
+    const draftStoreWrite=await fbSaveDraftStoreRec(draft);
+    const recordVerified=recordWrite?await fbVerifyRec(draft.id,draft.status):false;
+    const draftStoreVerified=draftStoreWrite?await fbVerifyDraftStoreRec(draft.id):false;
+    if(recordVerified||draftStoreVerified){
       saved++;
       if(draft.formState) await fbSaveFormState(draft.id,draft.formState);
     }
@@ -1690,9 +1693,18 @@ async function submitForm(isDraft){
   });
   const newRec=records[0];
   if(!isDraft&&oldDraftId) await fbDelRec(oldDraftId);
-  const cloudSaved=isDraft?((await fbSaveRec(newRec)) || (await fbSaveDraftStoreRec(newRec))):(await fbSaveRec(newRec));
-  if(cloudSaved) await fbSaveFormState(newRec.id, newRec.formState);
-  const cloudVerified=cloudSaved?(isDraft?((await fbVerifyRec(newRec.id,newRec.status)) || (await fbVerifyDraftStoreRec(newRec.id))):await fbVerifyRec(newRec.id,newRec.status)):false;
+  let cloudVerified=false;
+  if(isDraft){
+    const recordWrite=await fbSaveRec(newRec);
+    const draftStoreWrite=await fbSaveDraftStoreRec(newRec);
+    const recordVerified=recordWrite?await fbVerifyRec(newRec.id,newRec.status):false;
+    const draftStoreVerified=draftStoreWrite?await fbVerifyDraftStoreRec(newRec.id):false;
+    cloudVerified=recordVerified||draftStoreVerified;
+  }else{
+    const cloudSaved=await fbSaveRec(newRec);
+    cloudVerified=cloudSaved?await fbVerifyRec(newRec.id,newRec.status):false;
+  }
+  if(cloudVerified) await fbSaveFormState(newRec.id, newRec.formState);
   if(cloudVerified&&isDraft) cloudDraftCount=Math.max(cloudDraftCount,records.filter(r=>r.status==='draft').length);
   if(cloudVerified&&!isDraft) cloudFormalCount=Math.max(cloudFormalCount,records.filter(r=>r.status!=='draft').length);
   if(cloudVerified) cloudRecordCount=cloudFormalCount+cloudDraftCount;
