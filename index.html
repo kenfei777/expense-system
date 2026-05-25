@@ -429,7 +429,7 @@ body{font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;background:#F2
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#999" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
           </div>
           <span style="font-size:13px;color:#888">点击上传 或 拖拽文件到此处</span>
-          <span style="font-size:11px;color:#bbb">支持 JPG · PNG · PDF，最多 50 个</span>
+          <span style="font-size:11px;color:#bbb">支持 JPG · PNG · PDF，最多 10 个</span>
         </div>
         <div class="attach-list" id="attach-list"></div>
       </div>
@@ -690,6 +690,7 @@ const FIREBASE_CONFIG = {
 
 let db = null;
 let fbReady = false;
+let _loadAllPromise = null;
 let recordsUnsubscribe = null;
 
 function initFirebase(){
@@ -754,20 +755,14 @@ async function fbLoadAtts(atts){
 function stripRec(rec){
   const r=JSON.parse(JSON.stringify(rec));
   if(r.attachments) r.attachments=r.attachments.map(a=>({id:a.id||'',name:a.name||'',type:a.type||'',size:a.size||0}));
-  // formState 单独存，从主记录移除避免超过 Firebase 1MB 限制
-  if(r.formState){
-    lsSet('expense:fs:'+r.id, r.formState);
-    r._hasFormState=true;
-    delete r.formState;
-  }
+  // formState 保留在记录里，同时存本地缓存
+  if(r.formState) lsSet('expense:fs:'+r.id, r.formState);
   return r;
 }
 function hydrateRec(rec){
   if(rec.attachments) rec.attachments=rec.attachments.map(loadAttLocal);
-  // 从本地缓存恢复 formState
-  if(!rec.formState && rec._hasFormState){
-    rec.formState=lsGet('expense:fs:'+rec.id, null);
-  }
+  // 如果 Firebase 记录里没有 formState（旧版代码驳回导致），从独立集合补取
+  if(!rec.formState && rec._hasFormState) delete rec._hasFormState;
   return rec;
 }
 
@@ -788,25 +783,10 @@ function fid(id){return (id||'').replace(/[.#$/\[\]]/g,'_');}
 
 // ── Firebase CRUD ─────────────────────────────────────
 async function fbSaveRec(rec){
-  if(!fbReady||!db){
-    if(rec.status==='draft') showToast('⚠️ Firebase未连接，草稿仅存本地');
-    return;
-  }
-  // 先存主记录，确保草稿一定存到 Firebase
-  try{
-    await db.collection('expense_records').doc(fid(rec.id)).set(stripRec(rec));
-    if(rec.status==='draft') showToast('✅ 草稿已存到云端');
-  }
-  catch(e){ console.warn('fbSaveRec:',e); showToast('❌ 云端同步失败：'+e.message); return; }
-  // 再异步存附件（失败不影响主记录）
-  if(rec.attachments&&rec.attachments.length){
-    fbSaveAtts(rec.attachments).catch(e=>console.warn('fbSaveAtts:',e));
-  }
-}
-async function fbDelFormState(id){
   if(!fbReady||!db) return;
-  try{ await db.collection('expense_formstates').doc(fid(id)).delete(); }
-  catch(e){ console.warn('fbDelFormState:',e); }
+  if(rec.attachments&&rec.attachments.length) await fbSaveAtts(rec.attachments);
+  try{ await db.collection('expense_records').doc(fid(rec.id)).set(stripRec(rec)); }
+  catch(e){ console.warn('fbSaveRec:',e); showToast('云端同步失败，已保存到本地'); }
 }
 async function fbDelRec(id){
   if(!fbReady||!db) return;
@@ -851,14 +831,6 @@ function startLive(){
     }
 
     records=newRecords;
-    // 合并本地草稿：从内存和 localStorage 两处找，避免时序问题
-    const memDrafts=records.filter(r=>r.status==='draft'); // 刚赋值的 newRecords 里没有草稿
-    const localRecs=lsGet('expense:records',[]);
-    const localDrafts=localRecs.filter(lr=>lr.status==='draft'&&!newRecords.find(nr=>nr.id===lr.id));
-    if(localDrafts.length>0){
-      records=[...newRecords,...localDrafts];
-      records.sort((a,b)=>(b.submitTime||'').localeCompare(a.submitTime||''));
-    }
     lsSet('expense:records',records);
     if(currentUser){
       updateMetrics(); updatePendingBadge(); updateStorageDisplay();
@@ -880,6 +852,11 @@ function startLive(){
 
 // ── Load all data ─────────────────────────────────────
 async function loadAll(){
+  if(_loadAllPromise) return _loadAllPromise;
+  _loadAllPromise = _doLoadAll();
+  return _loadAllPromise;
+}
+async function _doLoadAll(){
   const ok=initFirebase();
   if(ok){
     const statusEl=document.getElementById('storage-status');
@@ -898,12 +875,7 @@ async function loadAll(){
         await fbSetCfg({users:USERS,rates:DEFAULT_RATES,domestic_allowance:200,overseas_allowance:500});
       }
       const recsSnap=await db.collection('expense_records').get();
-      const fbRecords=recsSnap.docs.map(d=>hydrateRec(d.data()));
-      fbRecords.sort((a,b)=>(b.submitTime||'').localeCompare(a.submitTime||''));
-      // 合并本地草稿
-      const localRecs=lsGet('expense:records',[]);
-      const localDrafts=localRecs.filter(lr=>lr.status==='draft'&&!fbRecords.find(nr=>nr.id===lr.id));
-      records=[...fbRecords,...localDrafts];
+      records=recsSnap.docs.map(d=>hydrateRec(d.data()));
       records.sort((a,b)=>(b.submitTime||'').localeCompare(a.submitTime||''));
       startLive();
       if(statusEl) statusEl.textContent='☁️ Firebase 云端同步已连接';
@@ -1039,8 +1011,10 @@ async function doLogin(){
   err.textContent='';
   if(btn){btn.textContent='登录中...';btn.disabled=true;}
 
-  // 等待页面初始化时的 loadAll 完成，不重复调用
-  if(_loadAllPromise) await _loadAllPromise;
+  // If Firebase not ready yet, wait for loadAll to complete
+  if(!fbReady){
+    await loadAll();
+  }
 
   if(btn){btn.textContent='登 录';btn.disabled=false;}
 
@@ -1365,7 +1339,6 @@ function captureFormState(){
       // amount / foreign amount
       if(t==='overseas'){
         row.foreign=cells[3]?.querySelector('.os-foreign')?.value||'';
-        row.cny=cells[4]?.querySelector('.os-cny')?.value||'';
         const rcptIdx=5;
         row.receipt=cells[rcptIdx]?.querySelector('select')?.value||'';
       } else if(t==='car'){
@@ -1451,10 +1424,9 @@ function restoreFormState(state){
       // amount / receipt
       if(t==='overseas'){
         const fi=tr.querySelector('.os-foreign');if(fi)fi.value=row.foreign||'';
-        const ci=tr.querySelector('.os-cny');if(ci&&row.cny)ci.value=row.cny;
         const rcptSel=tr.querySelectorAll('td')[5]?.querySelector('select');
         if(rcptSel&&row.receipt)rcptSel.value=row.receipt;
-        // 不在每行调用 calcOverseasTotal，避免覆盖 ci.value
+        calcOverseasTotal();
       } else if(t==='car'){
         const ai=tr.querySelectorAll('td')[3]?.querySelector('input[type=number]');
         if(ai)ai.value=row.amount||'';
@@ -1468,10 +1440,6 @@ function restoreFormState(state){
       }
     });
   });
-  // 所有行恢复完后统一计算一次
-  if(state.rows&&state.rows.overseas&&state.rows.overseas.length){
-    calcOverseasTotal();
-  }
 }
 
 async function editDraft(id){
@@ -1524,21 +1492,7 @@ function submitForm(isDraft){
   if(!isDraft&&!reason){showToast('请填写费用事由');return;}
   const typeVal=document.getElementById('exp-type').value,rawAmount=getCurrentAmount();
   const formalCount=records.filter(r=>r.status!=='draft'&&r.submittedBy===currentUser.id).length+1;
-
-  // 保存草稿：先删所有现有草稿（多条件匹配），再新建一条
-  if(isDraft){
-    const existingDrafts=records.filter(r=>
-      r.status==='draft'&&(
-        r.submittedBy===currentUser.id||
-        r.name===currentUser.name||
-        (r.id&&r.id.startsWith('DRAFT-'))
-      )
-    );
-    existingDrafts.forEach(d=>{fbDelRec(d.id);fbDelFormState(d.id);});
-    records=records.filter(r=>!existingDrafts.find(d=>d.id===r.id));
-  }
-
-  const id=isDraft?('DRAFT-'+currentUser.id):('EXP-'+currentUser.id+'-'+new Date().getFullYear()+'-'+String(formalCount).padStart(3,'0'));
+  const id=isDraft?('DRAFT-'+Date.now()):('EXP-'+currentUser.id+'-'+new Date().getFullYear()+'-'+String(formalCount).padStart(3,'0'));
   records.unshift({
     id,submittedBy:currentUser.id,name:currentUser.name,dept:currentUser.dept||'',
     type:TYPE_MAP[typeVal],reason:reason||'（草稿）',rawAmount,
@@ -1552,12 +1506,10 @@ function submitForm(isDraft){
     formState: captureFormState()
   });
   const newRec=records[0];
-  // 同步存附件到本地缓存，不等 Firebase 异步
-  if(newRec.attachments) newRec.attachments.forEach(att=>{if(att.data)saveAttLocal(att);});
   fbSaveRec(newRec);
   fbSaveFormState(newRec.id, newRec.formState);
   saveRecords();updateMetrics();
-  showToast(isDraft?'✅ 草稿已保存':'已提交审批，编号 '+id);
+  showToast(isDraft?'草稿已保存':'已提交审批，编号 '+id);
   if(!isDraft){_formLocked=false;clearForm();}
   else{_formLocked=false;}
 }
@@ -1585,7 +1537,7 @@ function processFiles(files){
   files.forEach(file=>{
     if(!allowed.includes(file.type)){showToast('不支持：'+file.name);return;}
     if(file.size>MAX_FILE){showToast('超过3MB：'+file.name);return;}
-    if(currentAttachments.length>=50){showToast('最多50个附件');return;}
+    if(currentAttachments.length>=10){showToast('最多10个附件');return;}
     const reader=new FileReader();
     reader.onload=e=>{
       currentAttachments.push({id:Date.now()+'_'+Math.random().toString(36).slice(2),name:file.name,type:file.type,size:file.size,data:e.target.result});
@@ -2116,7 +2068,7 @@ function showToast(msg){const t=document.getElementById('toast');t.textContent=m
 // ══════════════════════════════════════════════════════
 // INIT
 // ══════════════════════════════════════════════════════
-let _loadAllPromise = loadAll(); // 记录这个 Promise，doLogin 可以等待它
+loadAll();
 </script>
 </body>
 </html>
