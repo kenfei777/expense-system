@@ -142,6 +142,16 @@ body{font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;background:#F2
 .record-table th{font-size:11px;font-weight:600;color:#999;padding:9px 10px;text-align:left;border-bottom:2px solid #F0F0F0;background:#FAFAFA;white-space:nowrap}
 .record-table td{padding:9px 10px;border-bottom:1px solid #F5F5F5;vertical-align:top}
 .record-table tbody tr:hover td{background:#FAFBFF}
+.mobile-record-list{display:none}
+.mobile-record-card{border:1px solid #F0F0F0;border-radius:12px;padding:12px;margin-bottom:10px;background:#fff}
+.mobile-record-head{display:flex;align-items:flex-start;justify-content:space-between;gap:10px;margin-bottom:9px}
+.mobile-record-id{font-size:11px;color:#999;line-height:1.4;word-break:break-all}
+.mobile-record-amount{font-size:17px;font-weight:700;color:#1a1a1a;white-space:nowrap}
+.mobile-record-main{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.mobile-record-field{min-width:0}
+.mobile-record-label{font-size:10px;color:#aaa;margin-bottom:3px}
+.mobile-record-value{font-size:13px;color:#333;line-height:1.45;word-break:break-word}
+.mobile-record-actions{display:flex;gap:7px;flex-wrap:wrap;justify-content:flex-end;padding-top:9px;border-top:1px solid #F5F5F5}
 .approval-log{margin-top:5px;font-size:11px;color:#666;background:#F8F8F8;border-radius:7px;padding:5px 8px;line-height:1.7;border-left:3px solid #E0E0E0}
 .approval-log.approved{border-left-color:#27AE60}
 .approval-log.rejected{border-left-color:#E74C3C}
@@ -191,6 +201,10 @@ body{font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;background:#F2
   .toast{bottom:72px}
   .modal-overlay{align-items:flex-end}
   .btn{padding:10px 16px;font-size:13px}
+  .desktop-record-table{display:none}
+  .mobile-record-list{display:block}
+  .card-header{align-items:flex-start;gap:10px}
+  .card-header>div{justify-content:flex-end}
 }
 @media(min-width:641px){
   .bottom-nav{display:none!important}
@@ -464,11 +478,12 @@ body{font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;background:#F2
           </button>
         </div>
       </div>
-      <div style="overflow-x:auto">
+      <div class="desktop-record-table" style="overflow-x:auto">
         <table class="record-table"><thead><tr>
           <th>编号</th><th>类型</th><th>事由</th><th>金额</th><th>日期</th><th>附件</th><th>状态</th><th>审批信息</th><th>操作</th>
         </tr></thead><tbody id="my-records-body"></tbody></table>
       </div>
+      <div id="my-records-cards" class="mobile-record-list"></div>
       <div id="my-records-empty" class="empty-state" style="display:none">暂无申请记录，点击「新建申请」开始填写</div>
     </div>
   </div>
@@ -766,6 +781,32 @@ function hydrateRec(rec){
   return rec;
 }
 
+function recSortValue(r){
+  return r.submitTime || r.date || '';
+}
+function sortRecords(list){
+  list.sort((a,b)=>recSortValue(b).localeCompare(recSortValue(a)));
+  return list;
+}
+function mergeRecordsWithLocalDrafts(cloudRecords, localRecords){
+  const map=new Map();
+  (cloudRecords||[]).forEach(r=>map.set(r.id,r));
+  (localRecords||[]).forEach(r=>{
+    if(!r||!r.id||r.status!=='draft') return;
+    if(!map.has(r.id)) map.set(r.id,r);
+  });
+  return sortRecords(Array.from(map.values()));
+}
+async function syncLocalDraftsToCloud(localRecords, cloudRecords){
+  if(!fbReady||!db) return;
+  const cloudIds=new Set((cloudRecords||[]).map(r=>r.id));
+  const drafts=(localRecords||[]).filter(r=>r&&r.id&&r.status==='draft'&&!cloudIds.has(r.id));
+  for(const draft of drafts){
+    await fbSaveRec(draft);
+    if(draft.formState) await fbSaveFormState(draft.id,draft.formState);
+  }
+}
+
 // 把 formState 单独存一份到 expense_formstates 集合（防止被旧版代码删掉）
 async function fbSaveFormState(id, formState){
   if(!fbReady||!db||!formState) return;
@@ -783,10 +824,11 @@ function fid(id){return (id||'').replace(/[.#$/\[\]]/g,'_');}
 
 // ── Firebase CRUD ─────────────────────────────────────
 async function fbSaveRec(rec){
-  if(!fbReady||!db) return;
+  if(!fbReady||!db) return false;
   if(rec.attachments&&rec.attachments.length) await fbSaveAtts(rec.attachments);
   try{ await db.collection('expense_records').doc(fid(rec.id)).set(stripRec(rec)); }
-  catch(e){ console.warn('fbSaveRec:',e); showToast('云端同步失败，已保存到本地'); }
+  catch(e){ console.warn('fbSaveRec:',e); showToast('云端同步失败，已保存到本地'); return false; }
+  return true;
 }
 async function fbDelRec(id){
   if(!fbReady||!db) return;
@@ -807,8 +849,10 @@ function startLive(){
   recordsUnsubscribe=db.collection('expense_records').onSnapshot({includeMetadataChanges:true},snap=>{
     // 跳过来自本地缓存的快照（手机端首次触发时缓存为空会清空records）
     if(snap.metadata.fromCache) return;
-    const newRecords=snap.docs.map(d=>hydrateRec(d.data()));
-    newRecords.sort((a,b)=>(b.submitTime||'').localeCompare(a.submitTime||''));
+    const cloudRecords=sortRecords(snap.docs.map(d=>hydrateRec(d.data())));
+    const localRecords=lsGet('expense:records',[]);
+    const newRecords=mergeRecordsWithLocalDrafts(cloudRecords, localRecords);
+    syncLocalDraftsToCloud(localRecords, cloudRecords).catch(e=>console.warn('syncLocalDraftsToCloud:',e));
 
     // Detect status changes for current user's records
     if(currentUser){
@@ -877,8 +921,11 @@ async function _doLoadAll(){
         await fbSetCfg({users:USERS,rates:DEFAULT_RATES,domestic_allowance:200,overseas_allowance:500});
       }
       const recsSnap=await db.collection('expense_records').get();
-      records=recsSnap.docs.map(d=>hydrateRec(d.data()));
-      records.sort((a,b)=>(b.submitTime||'').localeCompare(a.submitTime||''));
+      const cloudRecords=sortRecords(recsSnap.docs.map(d=>hydrateRec(d.data())));
+      const localRecords=lsGet('expense:records',[]);
+      records=mergeRecordsWithLocalDrafts(cloudRecords, localRecords);
+      lsSet('expense:records',records);
+      await syncLocalDraftsToCloud(localRecords, cloudRecords);
       startLive();
       if(statusEl) statusEl.textContent='☁️ Firebase 云端同步已连接';
       if(dotEl) dotEl.style.background='#2980B9';
@@ -1489,7 +1536,7 @@ async function editDraft(id){
     showToast('⚠ 旧草稿已恢复基本信息，请重新填写费用明细');
   }
 }
-function submitForm(isDraft){
+async function submitForm(isDraft){
   const reason=document.getElementById('exp-reason').value.trim();
   if(!isDraft&&!reason){showToast('请填写费用事由');return;}
   const typeVal=document.getElementById('exp-type').value,rawAmount=getCurrentAmount();
@@ -1508,10 +1555,10 @@ function submitForm(isDraft){
     formState: captureFormState()
   });
   const newRec=records[0];
-  fbSaveRec(newRec);
-  fbSaveFormState(newRec.id, newRec.formState);
+  const cloudSaved=await fbSaveRec(newRec);
+  await fbSaveFormState(newRec.id, newRec.formState);
   saveRecords();updateMetrics();
-  showToast(isDraft?'草稿已保存':'已提交审批，编号 '+id);
+  showToast(isDraft?(cloudSaved?'草稿已保存并同步':'草稿已保存到本地，联网后会同步'):'已提交审批，编号 '+id);
   if(!isDraft){_formLocked=false;clearForm();}
   else{_formLocked=false;}
 }
@@ -1621,12 +1668,17 @@ function renderMyRecords(){
   if(!currentUser)return;
   const st=document.getElementById('filter-status').value;
   const mine=records.filter(r=>r.submittedBy===currentUser.id&&(!st||r.status===st));
-  const tb=document.getElementById('my-records-body'),empty=document.getElementById('my-records-empty');
-  tb.innerHTML='';if(!mine.length){empty.style.display='block';return;}empty.style.display='none';
+  const tb=document.getElementById('my-records-body'),cards=document.getElementById('my-records-cards'),empty=document.getElementById('my-records-empty');
+  tb.innerHTML='';if(cards)cards.innerHTML='';
+  if(!mine.length){empty.style.display='block';return;}empty.style.display='none';
   mine.forEach(r=>{
     const bc={pending:'badge-pending',approved:'badge-approved',rejected:'badge-rejected',draft:'badge-draft'}[r.status]||'badge-draft';
     const log=r.approvalLog&&r.approvalLog.length?r.approvalLog.filter(l=>l.action!=='resubmit').slice(-1)[0]:null;
     const logHtml=log?`<div class="approval-log ${log.action}"><strong>${log.action==='approved'?'✓ 批准':'✗ 驳回'}</strong> · ${log.approverName} · ${log.time}${log.comment?'<br><span style="color:#888">'+log.comment+'</span>':''}</div>`:'<span style="font-size:12px;color:#ccc">—</span>';
+    const actionHtml=`
+        ${r.status==='draft'?`<button class="btn-resubmit" style="background:#EBF5FB;color:#1A5276" onclick="editDraft('${r.id}')">编辑</button> <button class="btn-resubmit" onclick="submitDraft('${r.id}')">提交</button> `:''}
+        ${r.status==='rejected'?`<button class="btn-resubmit" style="background:#EBF5FB;color:#1A5276" onclick="editRejected('${r.id}')">修改</button> <button class="btn-resubmit" onclick="resubmit('${r.id}')">直接重新提交</button> `:''}
+        ${r.status!=='pending'?`<button style="font-size:11px;padding:5px 9px;background:#fff;color:#aaa;border:1px solid #E8E8E8;border-radius:6px;cursor:pointer;font-family:inherit" onclick="deleteMyRecord('${r.id}')">删除</button>`:''}`;
     const tr=document.createElement('tr');
     tr.innerHTML=`<td style="font-size:11px;color:#999">${r.id}</td><td>${r.type}</td>
       <td style="max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${r.reason}">${r.reason}</td>
@@ -1634,12 +1686,29 @@ function renderMyRecords(){
       <td>${attachBadge(r)}</td>
       <td><span class="badge ${bc}">${STATUS_LABEL[r.status]}</span></td>
       <td>${logHtml}</td>
-      <td style="white-space:nowrap">
-        ${r.status==='draft'?`<button class="btn-resubmit" style="background:#EBF5FB;color:#1A5276" onclick="editDraft('${r.id}')">编辑</button> <button class="btn-resubmit" onclick="submitDraft('${r.id}')">提交</button> `:''}
-        ${r.status==='rejected'?`<button class="btn-resubmit" style="background:#EBF5FB;color:#1A5276" onclick="editRejected('${r.id}')">修改</button> <button class="btn-resubmit" onclick="resubmit('${r.id}')">直接重新提交</button> `:''}
-        ${r.status!=='pending'?`<button style="font-size:11px;padding:5px 9px;background:#fff;color:#aaa;border:1px solid #E8E8E8;border-radius:6px;cursor:pointer;font-family:inherit" onclick="deleteMyRecord('${r.id}')">删除</button>`:''}
-      </td>`;
+      <td style="white-space:nowrap">${actionHtml}</td>`;
     tb.appendChild(tr);
+    if(cards){
+      const card=document.createElement('div');
+      card.className='mobile-record-card';
+      card.innerHTML=`
+        <div class="mobile-record-head">
+          <div>
+            <div class="mobile-record-id">${r.id}</div>
+            <div style="margin-top:5px"><span class="badge ${bc}">${STATUS_LABEL[r.status]}</span></div>
+          </div>
+          <div class="mobile-record-amount">${r.amount}</div>
+        </div>
+        <div class="mobile-record-main">
+          <div class="mobile-record-field"><div class="mobile-record-label">类型</div><div class="mobile-record-value">${r.type}</div></div>
+          <div class="mobile-record-field"><div class="mobile-record-label">日期</div><div class="mobile-record-value">${r.date}</div></div>
+          <div class="mobile-record-field"><div class="mobile-record-label">事由</div><div class="mobile-record-value">${r.reason}</div></div>
+          <div class="mobile-record-field"><div class="mobile-record-label">附件</div><div class="mobile-record-value">${attachBadge(r)}</div></div>
+        </div>
+        ${log?`<div style="margin-bottom:8px">${logHtml}</div>`:''}
+        <div class="mobile-record-actions">${actionHtml}</div>`;
+      cards.appendChild(card);
+    }
   });
 }
 function submitDraft(id){const r=records.find(r=>r.id===id);if(r){r.status='pending';r.submitTime=new Date().toLocaleString('zh-CN');fbSaveRec(r);saveRecords();updateMetrics();renderMyRecords();showToast('已提交审批');}}
