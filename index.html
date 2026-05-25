@@ -1331,6 +1331,7 @@ function captureFormState(){
       // amount / foreign amount
       if(t==='overseas'){
         row.foreign=cells[3]?.querySelector('.os-foreign')?.value||'';
+        row.cny=cells[4]?.querySelector('.os-cny')?.value||'';
         const rcptIdx=5;
         row.receipt=cells[rcptIdx]?.querySelector('select')?.value||'';
       } else if(t==='car'){
@@ -1416,9 +1417,10 @@ function restoreFormState(state){
       // amount / receipt
       if(t==='overseas'){
         const fi=tr.querySelector('.os-foreign');if(fi)fi.value=row.foreign||'';
+        const ci=tr.querySelector('.os-cny');if(ci&&row.cny)ci.value=row.cny;
         const rcptSel=tr.querySelectorAll('td')[5]?.querySelector('select');
         if(rcptSel&&row.receipt)rcptSel.value=row.receipt;
-        calcOverseasTotal();
+        // 不在每行调用 calcOverseasTotal，避免覆盖 ci.value
       } else if(t==='car'){
         const ai=tr.querySelectorAll('td')[3]?.querySelector('input[type=number]');
         if(ai)ai.value=row.amount||'';
@@ -1432,6 +1434,10 @@ function restoreFormState(state){
       }
     });
   });
+  // 所有行恢复完后统一计算一次
+  if(state.rows&&state.rows.overseas&&state.rows.overseas.length){
+    calcOverseasTotal();
+  }
 }
 
 async function editDraft(id){
