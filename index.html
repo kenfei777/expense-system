@@ -781,7 +781,7 @@ async function fbSaveFormState(id, formState){
 async function fbLoadFormState(id){
   if(!fbReady||!db) return null;
   try{
-    const snap=await db.collection('expense_formstates').doc(fid(id)).get();
+    const snap=await db.collection('expense_formstates').doc(fid(id)).get({source:'server'});
     return snap.exists?snap.data().formState:null;
   }catch(e){ return null; }
 }
@@ -1529,8 +1529,8 @@ function submitForm(isDraft){
     fbSaveRec(newRec).then(()=>{
       showToast('✅ 草稿已存到云端');
       oldDrafts.forEach(r=>fbDelRec(r.id));
+      fbSaveFormState(newRec.id, newRec.formState); // formState在主记录存成功后再存
     }).catch(()=>showToast('⚠️ 云端同步失败，已保存到本地'));
-    fbSaveFormState(newRec.id, newRec.formState);
   } else {
     fbSaveRec(newRec);
     fbSaveFormState(newRec.id, newRec.formState);
