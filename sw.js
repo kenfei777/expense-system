@@ -1,4 +1,4 @@
-const CACHE = 'expense-v1';
+const CACHE = 'expense-v2';
 const ASSETS = [
   '/expense-system/',
   '/expense-system/index.html',
@@ -11,13 +11,12 @@ const ASSETS = [
 self.addEventListener('install', e => {
   e.waitUntil(
     caches.open(CACHE).then(cache => {
-      // 逐个缓存，失败不影响整体
       return Promise.allSettled(ASSETS.map(url => cache.add(url).catch(() => {})));
     }).then(() => self.skipWaiting())
   );
 });
 
-// 激活：清理旧缓存
+// 激活：清理旧缓存（包括 expense-v1）
 self.addEventListener('activate', e => {
   e.waitUntil(
     caches.keys().then(keys =>
