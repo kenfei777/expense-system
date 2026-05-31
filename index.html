@@ -1366,6 +1366,7 @@ function captureFormState(){
       state.rows[t].push(row);
     });
   });
+  console.log('[captureFormState] overseas rows:', state.rows.overseas?.length, JSON.stringify(state.rows.overseas));
   return state;
 }
 
