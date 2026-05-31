@@ -755,8 +755,8 @@ async function fbLoadAtts(atts){
 function stripRec(rec){
   const r=JSON.parse(JSON.stringify(rec));
   if(r.attachments) r.attachments=r.attachments.map(a=>({id:a.id||'',name:a.name||'',type:a.type||'',size:a.size||0}));
-  // formState 保留在记录里，同时存本地缓存
-  if(r.formState) lsSet('expense:fs:'+r.id, r.formState);
+  // formState 存本地缓存后从记录里删掉（防Firebase 1MB超限）
+  if(r.formState){ lsSet('expense:fs:'+r.id, r.formState); delete r.formState; }
   return r;
 }
 function hydrateRec(rec){
