@@ -183,7 +183,7 @@ body{font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;background:#F2
   .field-row.col2{grid-template-columns:1fr}
   .top-nav{display:none}
   .bottom-nav{display:block}
-  body{padding-bottom:calc(60px + env(safe-area-inset-bottom))}
+  body{padding-bottom:60px}
   .topbar{padding:.625rem .875rem}
   .items-table{font-size:12px}
   .items-table th,.items-table td{padding:5px 6px}
@@ -805,7 +805,9 @@ function startLive(){
   if(!fbReady||!db||recordsUnsubscribe) return;
   recordsUnsubscribe=db.collection('expense_records').onSnapshot({includeMetadataChanges:true},snap=>{
     // 跳过来自本地缓存的快照（手机端首次触发时缓存为空会清空records）
-    if(snap.metadata.fromCache) return;
+    // 只跳过空的本地缓存快照（手机首次触发时缓存为空会清空records）
+    // 有数据的缓存快照仍然处理（比如刚写入的草稿触发的快照）
+    if(snap.metadata.fromCache && snap.docs.length === 0) return;
     const newRecords=snap.docs.map(d=>hydrateRec(d.data()));
     newRecords.sort((a,b)=>(b.submitTime||'').localeCompare(a.submitTime||''));
 
