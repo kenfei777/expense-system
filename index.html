@@ -1405,10 +1405,12 @@ function restoreFormState(state){
     if(!tbody||!state.rows||!state.rows[t])return;
     tbody.innerHTML=''; // clear default row added by clearForm
     if(!state.rows[t].length){addRow(t);return;} // 没有行时保留默认行
-    state.rows[t].forEach(row=>{
+    console.log('restoreFormState rows['+t+']:', JSON.stringify(state.rows[t]));
+    state.rows[t].forEach((row,rowIdx)=>{
       addRow(t); // adds a default row
       const tr=tbody.querySelector('tr:last-child');
-      if(!tr)return;
+      if(!tr){console.warn('no tr found for',t,rowIdx);return;}
+      console.log('restoring row',rowIdx,'tr found:', !!tr);
       // Set category
       const catSel=tr.querySelector('td:first-child select');
       if(catSel){
