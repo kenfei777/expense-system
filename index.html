@@ -767,8 +767,12 @@ function stripRec(rec){
 }
 function hydrateRec(rec){
   if(rec.attachments) rec.attachments=rec.attachments.map(loadAttLocal);
-  // 如果 Firebase 记录里没有 formState（旧版代码驳回导致），从独立集合补取
-  if(!rec.formState && rec._hasFormState) delete rec._hasFormState;
+  // 从localStorage恢复formState（stripRec存入时删掉了formState）
+  if(!rec.formState){
+    const fs=lsGet('expense:fs:'+rec.id, null);
+    if(fs) rec.formState=fs;
+  }
+  if(rec._hasFormState) delete rec._hasFormState;
   return rec;
 }
 
