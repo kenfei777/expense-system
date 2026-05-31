@@ -1346,6 +1346,7 @@ function captureFormState(){
       // amount / foreign amount
       if(t==='overseas'){
         row.foreign=cells[3]?.querySelector('.os-foreign')?.value||'';
+        row.cny=cells[4]?.querySelector('.os-cny')?.value||'';
         const rcptIdx=5;
         row.receipt=cells[rcptIdx]?.querySelector('select')?.value||'';
       } else if(t==='car'){
@@ -1431,6 +1432,7 @@ function restoreFormState(state){
       // amount / receipt
       if(t==='overseas'){
         const fi=tr.querySelector('.os-foreign');if(fi)fi.value=row.foreign||'';
+        const ci=tr.querySelector('.os-cny');if(ci)ci.value=row.cny||'';
         const rcptSel=tr.querySelectorAll('td')[5]?.querySelector('select');
         if(rcptSel&&row.receipt)rcptSel.value=row.receipt;
         calcOverseasTotal();
