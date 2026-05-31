@@ -1473,9 +1473,7 @@ async function editDraft(id){
       currentAttachments=r.attachments?[...r.attachments]:[];
       renderAttachList();
       _formLocked=true;
-      // 不立刻删Firebase草稿，等用户重新保存时再删（避免onSnapshot触发后草稿消失）
-      records=records.filter(rec=>rec.id!==id);
-      saveRecords();updateMetrics();
+      // 不从records删草稿，也不删Firebase，等用户重新保存时submitForm会处理
       showPage('new','new');
       window.scrollTo(0,0);
       showToast('草稿已加载，修改后重新保存或提交');
@@ -1494,9 +1492,7 @@ async function editDraft(id){
     currentAttachments=r.attachments?[...r.attachments]:[];
     renderAttachList();
     _formLocked=true;
-    // 不立刻删Firebase草稿，等用户重新保存时再删
-    records=records.filter(rec=>rec.id!==id);
-    saveRecords();updateMetrics();
+    // 不从records删草稿，等用户重新保存时submitForm会处理
     showPage('new','new');
     window.scrollTo(0,0);
     showToast('⚠ 旧草稿已恢复基本信息，请重新填写费用明细');
