@@ -1404,6 +1404,7 @@ function restoreFormState(state){
     const tbody=document.getElementById(t+'-body');
     if(!tbody||!state.rows||!state.rows[t])return;
     tbody.innerHTML=''; // clear default row added by clearForm
+    if(!state.rows[t].length){addRow(t);return;} // 没有行时保留默认行
     state.rows[t].forEach(row=>{
       addRow(t); // adds a default row
       const tr=tbody.querySelector('tr:last-child');
@@ -1470,7 +1471,7 @@ async function editDraft(id){
       currentAttachments=r.attachments?[...r.attachments]:[];
       renderAttachList();
       _formLocked=true;
-      fbDelRec(id);
+      // 不立刻删Firebase草稿，等用户重新保存时再删（避免onSnapshot触发后草稿消失）
       records=records.filter(rec=>rec.id!==id);
       saveRecords();updateMetrics();
       showPage('new','new');
@@ -1491,7 +1492,7 @@ async function editDraft(id){
     currentAttachments=r.attachments?[...r.attachments]:[];
     renderAttachList();
     _formLocked=true;
-    fbDelRec(id);
+    // 不立刻删Firebase草稿，等用户重新保存时再删
     records=records.filter(rec=>rec.id!==id);
     saveRecords();updateMetrics();
     showPage('new','new');
