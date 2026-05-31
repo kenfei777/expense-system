@@ -1385,32 +1385,19 @@ function restoreFormState(state){
   setVal('car-company',state.carCompany);setVal('car-model',state.carModel);
   setVal('car-start',state.carStart);setVal('car-end',state.carEnd);
   setVal('car-daily',state.carDaily);setVal('car-insurance',state.carInsurance);
-  // Recalc travel/overseas days
-  if(state.travelStart&&state.travelEnd)calcDays();
-  if(state.osStart&&state.osEnd)calcOsDays();
-  if(state.carStart||state.carEnd||state.carDaily)calcCarCost();
+  // 注意：不在此处提前计算（rows还没恢复），统一在rows恢复后的setTimeout里计算
   updateOsFx();
-  // Re-run calculations after a tick to ensure DOM is fully updated
-  setTimeout(()=>{
-    if(state.travelStart&&state.travelEnd)calcDays();
-    if(state.osStart&&state.osEnd)calcOsDays();
-    if(state.carStart||state.carEnd||state.carDaily)calcCarCost();
-    updateOsFx();
-    calcTotal('daily');calcTotal('travel');calcOverseasTotal();calcCarTotal();
-  },100);
-  // Restore rows
+  // Restore rows FIRST (synchronously), then recalculate
   const today=new Date().toISOString().split('T')[0];
   ['daily','travel','overseas','car'].forEach(t=>{
     const tbody=document.getElementById(t+'-body');
     if(!tbody||!state.rows||!state.rows[t])return;
     tbody.innerHTML=''; // clear default row added by clearForm
     if(!state.rows[t].length){addRow(t);return;} // 没有行时保留默认行
-    console.log('restoreFormState rows['+t+']:', JSON.stringify(state.rows[t]));
-    state.rows[t].forEach((row,rowIdx)=>{
+    state.rows[t].forEach(row=>{
       addRow(t); // adds a default row
       const tr=tbody.querySelector('tr:last-child');
-      if(!tr){console.warn('no tr found for',t,rowIdx);return;}
-      console.log('restoring row',rowIdx,'tr found:', !!tr);
+      if(!tr)return;
       // Set category
       const catSel=tr.querySelector('td:first-child select');
       if(catSel){
@@ -1455,6 +1442,14 @@ function restoreFormState(state){
       }
     });
   });
+  // Recalculate AFTER all rows are restored
+  setTimeout(()=>{
+    if(state.travelStart&&state.travelEnd)calcDays();
+    if(state.osStart&&state.osEnd)calcOsDays();
+    if(state.carStart||state.carEnd||state.carDaily)calcCarCost();
+    updateOsFx();
+    calcTotal('daily');calcTotal('travel');calcOverseasTotal();calcCarTotal();
+  },50);
 }
 
 async function editDraft(id){
