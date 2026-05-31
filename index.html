@@ -1018,10 +1018,9 @@ async function doLogin(){
   err.textContent='';
   if(btn){btn.textContent='登录中...';btn.disabled=true;}
 
-  // If Firebase not ready yet, wait for loadAll to complete
-  if(!fbReady){
-    await loadAll();
-  }
+  // 始终等待 loadAll 完成（fbReady=true 只代表SDK初始化，不代表数据已加载完）
+  // 手机端用户快速点登录时 fbReady 已 true 但 USERS 还未从 Firebase 读回
+  await loadAll();
 
   if(btn){btn.textContent='登 录';btn.disabled=false;}
 
