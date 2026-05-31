@@ -1055,7 +1055,8 @@ async function doLogin(){
     document.getElementById('export-zip-btn').style.display='flex';
     showPage('approve','approve');
   } else {
-    addRow('daily');
+    _formLocked=false;
+    clearForm();
     showPage('new','new');
   }
   updateMetrics();updateStorageDisplay();updatePendingBadge();
@@ -1366,7 +1367,6 @@ function captureFormState(){
       state.rows[t].push(row);
     });
   });
-  console.log('[captureFormState] overseas rows:', state.rows.overseas?.length, JSON.stringify(state.rows.overseas));
   return state;
 }
 
