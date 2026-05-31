@@ -183,7 +183,7 @@ body{font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;background:#F2
   .field-row.col2{grid-template-columns:1fr}
   .top-nav{display:none}
   .bottom-nav{display:block}
-  body{padding-bottom:60px}
+  body{padding-bottom:calc(60px + env(safe-area-inset-bottom))}
   .topbar{padding:.625rem .875rem}
   .items-table{font-size:12px}
   .items-table th,.items-table td{padding:5px 6px}
