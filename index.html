@@ -870,7 +870,8 @@ async function _doLoadAll(){
     const dotEl=document.getElementById('storage-dot');
     if(statusEl) statusEl.textContent='正在连接云端数据库…';
     try{
-      const cfgSnap=await db.collection('expense').doc('config').get();
+      // 强制从服务器读取，不走本地缓存（手机端缓存可能为空导致 exists=false）
+      const cfgSnap=await db.collection('expense').doc('config').get({source:'server'});
       if(cfgSnap.exists){
         const c=cfgSnap.data();
         USERS=c.users||{APR001:{name:'管理员',dept:'管理层',role:'approver',pw:'admin888'}};
@@ -878,19 +879,38 @@ async function _doLoadAll(){
         DOMESTIC_ALLOWANCE=c.domestic_allowance||200;
         OVERSEAS_ALLOWANCE=c.overseas_allowance||500;
       } else {
+        // 真的不存在（全新项目），才初始化默认配置
         USERS={APR001:{name:'管理员',dept:'管理层',role:'approver',pw:'admin888'}};
         await fbSetCfg({users:USERS,rates:DEFAULT_RATES,domestic_allowance:200,overseas_allowance:500});
       }
-      const recsSnap=await db.collection('expense_records').get();
+      const recsSnap=await db.collection('expense_records').get({source:'server'});
       records=recsSnap.docs.map(d=>hydrateRec(d.data()));
       records.sort((a,b)=>(b.submitTime||'').localeCompare(a.submitTime||''));
       startLive();
       if(statusEl) statusEl.textContent='☁️ Firebase 云端同步已连接';
       if(dotEl) dotEl.style.background='#2980B9';
     }catch(e){
-      console.warn('Firebase load error, fallback:',e);
-      _fallbackLoad();
-    }
+      console.warn('Firebase load error (attempt 1), retrying...', e);
+      // 手机端网络不稳，先重试一次
+      try{
+        const cfgSnap2=await db.collection('expense').doc('config').get({source:'server'});
+        if(cfgSnap2.exists){
+          const c=cfgSnap2.data();
+          USERS=c.users||{APR001:{name:'管理员',dept:'管理层',role:'approver',pw:'admin888'}};
+          RATES={...DEFAULT_RATES,...(c.rates||{})};
+          DOMESTIC_ALLOWANCE=c.domestic_allowance||200;
+          OVERSEAS_ALLOWANCE=c.overseas_allowance||500;
+        }
+        const recsSnap2=await db.collection('expense_records').get({source:'server'});
+        records=recsSnap2.docs.map(d=>hydrateRec(d.data()));
+        records.sort((a,b)=>(b.submitTime||'').localeCompare(a.submitTime||''));
+        startLive();
+        if(statusEl) statusEl.textContent='☁️ Firebase 云端同步已连接';
+        if(dotEl) dotEl.style.background='#2980B9';
+      }catch(e2){
+        console.warn('Firebase load error (attempt 2), fallback:', e2);
+        _fallbackLoad();
+      }
   } else {
     _fallbackLoad();
   }
@@ -1018,8 +1038,8 @@ async function doLogin(){
   err.textContent='';
   if(btn){btn.textContent='登录中...';btn.disabled=true;}
 
-  // 始终等待 loadAll 完成（fbReady=true 只代表SDK初始化，不代表数据已加载完）
-  // 手机端用户快速点登录时 fbReady 已 true 但 USERS 还未从 Firebase 读回
+  // 必须始终等待 loadAll 完成，才能保证 USERS 已从 Firebase 加载
+  // fbReady=true 只代表 SDK 初始化，不代表数据已读回
   await loadAll();
 
   if(btn){btn.textContent='登 录';btn.disabled=false;}
