@@ -697,7 +697,7 @@ function initFirebase(){
   try{
     if(!firebase.apps.length) firebase.initializeApp(FIREBASE_CONFIG);
     db=firebase.firestore();
-    db.enablePersistence().catch(()=>{});  // 离线缓存
+    // db.enablePersistence() 已禁用 — 离线缓存导致手机端读到旧数据无法同步
     fbReady=true; return true;
   }catch(e){ console.warn('Firebase init failed:',e); fbReady=false; return false; }
 }
