@@ -116,6 +116,7 @@ body{font-family:'Microsoft YaHei','PingFang SC',Arial,sans-serif;background:#F2
 .attach-item{display:flex;align-items:center;gap:8px;padding:7px 10px;background:#fff;border:1px solid #EBEBEB;border-radius:10px}
 .attach-thumb{width:38px;height:38px;border-radius:7px;object-fit:cover;flex-shrink:0;cursor:pointer;border:1px solid #E0E0E0}
 .attach-thumb-pdf{width:38px;height:38px;border-radius:7px;background:#FDEDEC;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:10px;font-weight:700;color:#922B21;cursor:pointer;border:1px solid #FADBD8}
+.attach-thumb-img{width:38px;height:38px;border-radius:7px;background:#EAF2FB;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:10px;font-weight:700;color:#2E6FB0;cursor:pointer;border:1px solid #D3E3F5}
 .attach-name{font-size:12px;color:#444;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
 .attach-size{font-size:11px;color:#bbb;flex-shrink:0;white-space:nowrap}
 .attach-del{background:transparent;border:none;cursor:pointer;color:#CCC;font-size:18px;padding:2px 4px;flex-shrink:0;line-height:1}
@@ -1579,23 +1580,46 @@ function renderAttachList(){
     const item=document.createElement('div');item.className='attach-item';
     const isPdf=att.type==='application/pdf';
     const sz=att.size>1048576?(att.size/1048576).toFixed(1)+'MB':(att.size/1024).toFixed(0)+'KB';
-    item.innerHTML=(isPdf?`<div class="attach-thumb-pdf" onclick="previewAtt(${idx})">PDF</div>`:`<img class="attach-thumb" src="${att.data}" onclick="previewAtt(${idx})"/>`)+
+    item.innerHTML=(isPdf?`<div class="attach-thumb-pdf" onclick="previewAtt(${idx})">PDF</div>`:(att.data?`<img class="attach-thumb" src="${att.data}" onclick="previewAtt(${idx})"/>`:`<div class="attach-thumb-img" onclick="previewAtt(${idx})">IMG</div>`))+
       `<span class="attach-name" title="${att.name}">${att.name}</span><span class="attach-size">${sz}</span><button class="attach-preview-btn" onclick="previewAtt(${idx})">预览</button><button class="attach-del" onclick="removeAtt(${idx})">×</button>`;
     list.appendChild(item);
   });
 }
 function removeAtt(idx){currentAttachments.splice(idx,1);renderAttachList();}
-function previewAtt(idx,recId){
+async function previewAtt(idx,recId){
   let att=recId!==undefined?(records.find(r=>r.id===recId)||{attachments:[]}).attachments[idx]:currentAttachments[idx];
   if(!att)return;
   previewFile=att;
   document.getElementById('preview-filename').textContent=att.name;
   const c=document.getElementById('preview-content');
+  // 换设备时 att.data 为空，先去 Firebase 拉回 base64 再预览（否则 src="" 会跳 404/裂图）
+  if(!att.data){
+    c.innerHTML='<div style="color:#fff;padding:2rem;text-align:center">加载中…</div>';
+    document.getElementById('preview-overlay').style.display='flex';
+    try{
+      const loaded=await fbLoadAtts([att]);
+      if(loaded&&loaded[0]&&loaded[0].data){
+        att.data=loaded[0].data; // 回填，下次不用再拉
+        previewFile=att;
+      }
+    }catch(e){ console.warn('预览加载附件失败:',e); }
+    if(!att.data){
+      c.innerHTML='<div style="color:#fff;padding:2rem;text-align:center">附件加载失败，请检查网络后重试</div>';
+      return;
+    }
+  }
   c.innerHTML=att.type==='application/pdf'?`<iframe src="${att.data}" style="width:100%;height:100%;border:none;min-height:400px"></iframe>`:`<img src="${att.data}" alt="${att.name}"/>`;
   document.getElementById('preview-overlay').style.display='flex';
 }
 function closePreview(){document.getElementById('preview-overlay').style.display='none';document.getElementById('preview-content').innerHTML='';previewFile=null;}
-function downloadPreview(){if(!previewFile)return;const a=document.createElement('a');a.href=previewFile.data;a.download=previewFile.name;a.click();}
+async function downloadPreview(){
+  if(!previewFile)return;
+  if(!previewFile.data){
+    try{ const loaded=await fbLoadAtts([previewFile]); if(loaded&&loaded[0]&&loaded[0].data) previewFile.data=loaded[0].data; }catch(e){}
+  }
+  if(!previewFile.data){ showToast('附件数据未加载，无法下载'); return; }
+  const a=document.createElement('a');a.href=previewFile.data;a.download=previewFile.name;a.click();
+}
 
 function attachBadge(rec){
   if(!rec.attachments||!rec.attachments.length)return '<span style="color:#ccc;font-size:12px">无</span>';
@@ -1846,7 +1870,9 @@ function _renderDetail(r){
             ?(a.type==='application/pdf'
               ?`<div class="attach-thumb-pdf" onclick="previewAtt(${i},'${r.id}')" style="cursor:pointer">PDF</div>`
               :`<img src="${a.data}" class="attach-thumb" onclick="previewAtt(${i},'${r.id}')" style="cursor:pointer"/>`)
-            :`<span style="font-size:11px;color:#999;background:#F5F5F5;padding:4px 8px;border-radius:6px">📎 ${a.name}</span>`
+            :(a.type==='application/pdf'
+              ?`<div class="attach-thumb-pdf" onclick="previewAtt(${i},'${r.id}')" style="cursor:pointer">PDF</div>`
+              :`<div class="attach-thumb-img" onclick="previewAtt(${i},'${r.id}')" style="cursor:pointer">IMG</div>`)
           ).join('')}
         </div>
       </div>`
