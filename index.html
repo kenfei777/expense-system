@@ -747,7 +747,7 @@ async function fbLoadAtts(atts){
     const cached=localStorage.getItem('expense:att:'+att.id);
     if(cached){ result.push({...att,data:cached}); continue; }
     try{
-      const snap=await db.collection('expense_attachments').doc(fid(att.id)).get();
+      const snap=await db.collection('expense_attachments').doc(fid(att.id)).get({source:'server'});
       if(snap.exists){
         const d=snap.data();
         const data=d.chunks?d.chunks.join(''):d.data||'';
