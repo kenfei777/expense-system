@@ -751,8 +751,10 @@ async function fbLoadAtts(atts){
       if(snap.exists){
         const d=snap.data();
         const data=d.chunks?d.chunks.join(''):d.data||'';
-        localStorage.setItem('expense:att:'+att.id, data); // cache locally
-        result.push({...att,data});
+        if(data){
+          localStorage.setItem('expense:att:'+att.id, data); // cache locally
+          result.push({...att,data});
+        } else { result.push(att); } // 服务器数据为空，保持 data 缺失，不写空缓存
       } else { result.push(att); }
     }catch(e){ console.warn('fbLoadAtt failed:',att.name,e); result.push(att); }
   }
@@ -1634,13 +1636,24 @@ async function downloadAttachmentsZip(recId){
   if(typeof JSZip==='undefined'){showToast('JSZip 未加载，请稍候重试');return;}
   const rec=records.find(r=>r.id===recId);
   if(!rec||!rec.attachments||!rec.attachments.length){showToast('该申请没有附件');return;}
-  showToast('正在打包附件…');
+  showToast(`正在加载 ${rec.attachments.length} 个附件，请稍候…`);
   try{
+    // 换设备时本地无缓存，data 为 null，先从 Firebase 拉回
+    const missing=rec.attachments.filter(a=>!a.data);
+    if(missing.length){
+      const loaded=await fbLoadAtts(missing);
+      loaded.forEach(la=>{
+        const att=rec.attachments.find(a=>a.id===la.id);
+        if(att&&la.data) att.data=la.data;
+      });
+    }
     const zip=new JSZip();
     const folder=zip.folder(rec.id);
     // Deduplicate filenames
     const nameCount={};
+    let added=0, skipped=0;
     rec.attachments.forEach(att=>{
+      if(!att.data){ skipped++; return; } // 拉不到的附件跳过，不崩溃
       const base=att.name||'附件';
       nameCount[base]=(nameCount[base]||0)+1;
       const count=nameCount[base];
@@ -1648,7 +1661,9 @@ async function downloadAttachmentsZip(recId){
       // Strip base64 header and decode
       const b64=att.data.split(',')[1]||att.data;
       folder.file(fname,b64,{base64:true});
+      added++;
     });
+    if(added===0){showToast('附件加载失败，请检查网络（国内需开VPN）后重试');return;}
     const blob=await zip.generateAsync({type:'blob'});
     const url=URL.createObjectURL(blob);
     const a=document.createElement('a');
@@ -1656,7 +1671,7 @@ async function downloadAttachmentsZip(recId){
     a.download=`附件_${rec.id}_${rec.name||''}.zip`;
     a.click();
     setTimeout(()=>URL.revokeObjectURL(url),3000);
-    showToast(`已下载 ${rec.attachments.length} 个附件`);
+    showToast(skipped>0?`已下载 ${added} 个附件，${skipped} 个加载失败`:`已下载 ${added} 个附件`);
   }catch(e){
     showToast('打包失败：'+e.message);
   }
@@ -2044,19 +2059,22 @@ async function downloadAllZip(){
       }
     }
     const zip=new JSZip();
+    let added=0, skipped=0;
     data.forEach(rec=>{
       const folder=zip.folder(`${rec.id}_${rec.name||''}`);
       const nameCount={};
       rec.attachments.forEach(att=>{
-        if(!att.data) return; // 仍拉不到就跳过，不崩溃
+        if(!att.data){ skipped++; return; } // 仍拉不到就跳过，不崩溃
         const base=att.name||'附件';
         nameCount[base]=(nameCount[base]||0)+1;
         const count=nameCount[base];
         const fname=count>1?base.replace(/(\.[^.]+)$/,`_${count}$1`):base;
         const b64=att.data.split(',')[1]||att.data;
         folder.file(fname,b64,{base64:true});
+        added++;
       });
     });
+    if(added===0){showToast('附件加载失败，请检查网络（国内需开VPN）后重试');return;}
     const blob=await zip.generateAsync({type:'blob'});
     const url=URL.createObjectURL(blob);
     const a=document.createElement('a');
@@ -2064,7 +2082,7 @@ async function downloadAllZip(){
     a.download=`全部报销附件_${new Date().toISOString().split('T')[0]}.zip`;
     a.click();
     setTimeout(()=>URL.revokeObjectURL(url),3000);
-    showToast(`已下载 ${totalCount} 个附件，共 ${data.length} 条申请`);
+    showToast(skipped>0?`已下载 ${added} 个附件，${skipped} 个加载失败`:`已下载 ${added} 个附件，共 ${data.length} 条申请`);
   }catch(e){showToast('打包失败：'+e.message);}
 }
 
