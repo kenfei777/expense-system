@@ -752,9 +752,11 @@ async function fbLoadAtts(atts){
         const d=snap.data();
         const data=d.chunks?d.chunks.join(''):d.data||'';
         if(data){
-          localStorage.setItem('expense:att:'+att.id, data); // cache locally
+          // 缓存到本地，但配额满时不能影响返回数据（坑1同类问题）
+          try{ localStorage.setItem('expense:att:'+att.id, data); }
+          catch(e){ console.warn('att cache quota exceeded:', att.name); }
           result.push({...att,data});
-        } else { result.push(att); } // 服务器数据为空，保持 data 缺失，不写空缓存
+        } else { result.push(att); } // 服务器数据为空，保持 data 缺失
       } else { result.push(att); }
     }catch(e){ console.warn('fbLoadAtt failed:',att.name,e); result.push(att); }
   }
