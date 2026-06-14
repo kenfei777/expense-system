@@ -2030,13 +2030,25 @@ async function downloadAllZip(){
   const data=records.filter(r=>r.attachments&&r.attachments.length);
   if(!data.length){showToast('所有申请均无附件');return;}
   const totalCount=data.reduce((s,r)=>s+r.attachments.length,0);
-  showToast(`正在打包 ${totalCount} 个附件…`);
+  showToast(`正在加载 ${totalCount} 个附件，请稍候…`);
   try{
+    // 先把所有记录的附件 data 补齐（换设备时本地无缓存，需从 Firebase 拉）
+    for(const rec of data){
+      const missing=rec.attachments.filter(a=>!a.data);
+      if(missing.length){
+        const loaded=await fbLoadAtts(missing);
+        loaded.forEach(la=>{
+          const att=rec.attachments.find(a=>a.id===la.id);
+          if(att&&la.data) att.data=la.data;
+        });
+      }
+    }
     const zip=new JSZip();
     data.forEach(rec=>{
       const folder=zip.folder(`${rec.id}_${rec.name||''}`);
       const nameCount={};
       rec.attachments.forEach(att=>{
+        if(!att.data) return; // 仍拉不到就跳过，不崩溃
         const base=att.name||'附件';
         nameCount[base]=(nameCount[base]||0)+1;
         const count=nameCount[base];
